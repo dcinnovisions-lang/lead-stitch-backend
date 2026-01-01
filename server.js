@@ -9,26 +9,6 @@ const redisClient = require('./config/redis');
 const app = require('./app');
 const { initializeSocket } = require('./socket/socketServer');
 
-// Initialize Sentry for error tracking (if configured)
-let Sentry = null;
-if (process.env.SENTRY_DSN) {
-    try {
-        Sentry = require('@sentry/node');
-        Sentry.init({
-            dsn: process.env.SENTRY_DSN,
-            environment: process.env.NODE_ENV || 'development',
-            tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
-        });
-        console.log('✅ Sentry error tracking initialized');
-    } catch (error) {
-        console.warn('⚠️  Sentry not installed. Run: npm install @sentry/node');
-        console.warn('⚠️  Error tracking will be disabled.');
-    }
-} else {
-    console.log('ℹ️  Sentry DSN not configured. Error tracking disabled.');
-    console.log('ℹ️  Set SENTRY_DSN in .env to enable error tracking.');
-}
-
 const PORT = process.env.PORT || 5000;
 // Use APP_URL from env if provided (production), otherwise default to localhost
 const APP_URL = `http://localhost:${PORT}` || process.env.APP_URL;
@@ -116,5 +96,4 @@ server.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🌐 API URL: ${APP_URL}/api`);
-    console.log(`📡 Socket.io server initialized`);
 });

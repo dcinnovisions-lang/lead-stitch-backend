@@ -33,8 +33,7 @@ redisClient.on('reconnecting', () => {
 });
 
 redisClient.on('ready', () => {
-    console.log('✅ Redis connected successfully');
-    console.log(`   Host: ${process.env.REDIS_HOST || 'localhost'}:${process.env.REDIS_PORT || 6379}`);
+    console.log('✅ Redis connected');
 });
 
 // Connect to Redis

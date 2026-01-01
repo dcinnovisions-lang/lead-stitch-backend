@@ -32,9 +32,9 @@ const sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASSWORD, {
 });
 
 sequelize.authenticate().then(() => {
-    console.log('PostgreSQL Connection has been established successfully.');
+    // Database connection established - additional logs handled in redis.js and database.js
 }).catch(error => {
-    console.error('Unable to connect to database:', error);
+    console.error('❌ Unable to connect to database:', error.message);
     process.exit(1); // Exit process on connection failure in production
 });
 

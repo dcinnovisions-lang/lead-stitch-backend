@@ -9,18 +9,20 @@ class TicketNotificationService {
   constructor() {
     // Use system email configuration or default SMTP
     this.transporter = null;
-    this.initializeTransporter();
+    this.initialized = false;
   }
 
   async initializeTransporter() {
     // Use OTP SMTP configuration (same as password reset emails)
+    if (this.initialized) return; // Skip if already initialized
+
     try {
       const smtpConfig = {
         host: process.env.OTP_SMTP_HOST || process.env.SMTP_HOST || 'smtp.gmail.com',
         port: parseInt(process.env.OTP_SMTP_PORT || process.env.SMTP_PORT || '587'),
         secure: process.env.OTP_SMTP_SECURE === 'true' || process.env.SMTP_SECURE === 'true',
-        auth: (process.env.OTP_SMTP_USER || process.env.SMTP_USER) && 
-              (process.env.OTP_SMTP_PASS || process.env.SMTP_PASS) ? {
+        auth: (process.env.OTP_SMTP_USER || process.env.SMTP_USER) &&
+          (process.env.OTP_SMTP_PASS || process.env.SMTP_PASS) ? {
           user: process.env.OTP_SMTP_USER || process.env.SMTP_USER,
           pass: process.env.OTP_SMTP_PASS || process.env.SMTP_PASS,
         } : undefined,
@@ -28,13 +30,14 @@ class TicketNotificationService {
 
       if (smtpConfig.auth) {
         this.transporter = nodemailer.createTransport(smtpConfig);
-        console.log('✅ Ticket notification email service initialized using OTP SMTP config');
       } else {
         console.warn('⚠️  SMTP not configured. Ticket email notifications will be disabled.');
         console.warn('⚠️  Set OTP_SMTP_HOST, OTP_SMTP_PORT, OTP_SMTP_USER, OTP_SMTP_PASS in .env to enable notifications.');
       }
+      this.initialized = true;
     } catch (error) {
       console.error('Error initializing email transporter:', error);
+      this.initialized = true;
     }
   }
 
@@ -42,6 +45,11 @@ class TicketNotificationService {
    * Send email notification
    */
   async sendNotification(to, subject, html, text) {
+    // Ensure transporter is initialized before sending
+    if (!this.initialized) {
+      await this.initializeTransporter();
+    }
+
     if (!this.transporter) {
       console.log('📧 Email notification skipped (SMTP not configured):', subject);
       return false;
@@ -73,7 +81,7 @@ class TicketNotificationService {
     if (!user) return;
 
     const ticketUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tickets/${ticket.id}`;
-    
+
     const subject = `Support Ticket Created: ${ticket.ticket_number}`;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -139,7 +147,7 @@ You will receive email notifications when there are updates to your ticket.
     if (comment.is_internal) return;
 
     const ticketUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tickets/${ticket.id}`;
-    const commenterName = commentUser 
+    const commenterName = commentUser
       ? `${commentUser.first_name || ''} ${commentUser.last_name || ''}`.trim() || commentUser.email
       : 'Support Team';
 
@@ -191,7 +199,7 @@ View your ticket: ${ticketUrl}
     if (!user) return;
 
     const ticketUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tickets/${ticket.id}`;
-    
+
     const statusLabels = {
       open: 'Open',
       in_progress: 'In Progress',
@@ -199,7 +207,7 @@ View your ticket: ${ticketUrl}
       resolved: 'Resolved',
       closed: 'Closed'
     };
-    
+
     const subject = `Ticket Status Updated: ${ticket.ticket_number}`;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -250,7 +258,7 @@ View your ticket: ${ticketUrl}
     if (!user) return;
 
     const ticketUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/tickets/${ticket.id}`;
-    const assigneeName = assignee 
+    const assigneeName = assignee
       ? `${assignee.first_name || ''} ${assignee.last_name || ''}`.trim() || assignee.email
       : 'Support Team';
 

@@ -147,31 +147,6 @@ exports.getScrapingStatus = async (req, res) => {
         const state = await job.getState();
         const progress = job.progress();
         const jobData = job.data || {};
-        
-        // Get pythonJobId from job data - it should be persisted via job.update()
-        let pythonJobId = jobData.pythonJobId;
-        
-        // Fallback: Try to get pythonJobId from job's return value if not in data
-        // (This handles cases where job.update() might have failed)
-        if (!pythonJobId && state === 'completed') {
-            try {
-                const result = await job.finished();
-                if (result && result.pythonJobId) {
-                    pythonJobId = result.pythonJobId;
-                }
-            } catch (err) {
-                // Job not finished yet or other error - ignore
-            }
-        }
-        
-        // Log only if pythonJobId is missing (for debugging)
-        if (!pythonJobId && (state === 'active' || state === 'waiting')) {
-            console.log('[Profile Controller] ⚠️  pythonJobId not found in job data:', {
-                jobId: job.id,
-                state: state,
-                dataKeys: Object.keys(jobData)
-            });
-        }
 
         // Get profiles if job is completed
         let profiles = [];
@@ -200,88 +175,7 @@ exports.getScrapingStatus = async (req, res) => {
                 totalProfilesScraped = profiles.length;
             }
         } else if (state === 'active' || state === 'waiting') {
-            // Try to get progress from job data or return estimated progress
-            // Check if we can get info from the Python API
-            try {
-                if (pythonJobId) {
-                    const axios = require('axios');
-                    let scrapingServiceUrl = process.env.LINKEDIN_SCRAPING_SERVICE_URL || 'http://localhost:5001';
-                    // Remove trailing slash to avoid double slashes
-                    scrapingServiceUrl = scrapingServiceUrl.replace(/\/+$/, '');
-                    const pythonStatusUrl = `${scrapingServiceUrl}/api/status/${pythonJobId}`;
-                    
-                    const pythonStatus = await axios.get(pythonStatusUrl, {
-                        timeout: 10000,
-                        headers: {
-                            'Connection': 'close'
-                        }
-                    });
-                    const pythonData = pythonStatus.data;
-                    
-                    // Get step tracking information - prioritize Python API data
-                    if (pythonData && pythonData.current_step) {
-                        currentRole = pythonData.current_role || null;
-                        totalProfilesScraped = pythonData.profiles_scraped || 0;
-                        rolesCompleted = pythonData.roles_completed || 0;
-                        totalRoles = pythonData.total_roles || pythonData.roles_count || 0;
-                        
-                        // Update stepInfo with real-time Python API data
-                        stepInfo = {
-                            current_step: pythonData.current_step,
-                            step_details: pythonData.step_details || { 
-                                step: pythonData.current_step, 
-                                message: pythonData.step_details?.message || pythonData.message || '', 
-                                progress: pythonData.step_details?.progress || pythonData.progress || 0 
-                            },
-                            login_status: pythonData.login_status || 'pending',
-                            login_attempt: pythonData.login_attempt || 0,
-                            login_max_attempts: pythonData.login_max_attempts || 3
-                        };
-                        
-                        // Log successful update (only in development or when step changes)
-                        if (process.env.NODE_ENV === 'development') {
-                            console.log('[Profile Controller] ✅ Updated step info from Python API:', {
-                                current_step: stepInfo.current_step,
-                                step_details_message: stepInfo.step_details?.message,
-                                login_status: stepInfo.login_status
-                            });
-                        }
-                    }
-                    
-                    // Fallback to result data if available
-                    if (pythonData.result) {
-                        const result = pythonData.result;
-                        if (result.role_results) {
-                            totalRoles = totalRoles || result.role_results.length;
-                            rolesCompleted = rolesCompleted || result.role_results.filter(r => r.success).length;
-                            totalProfilesScraped = totalProfilesScraped || result.role_results.reduce((sum, r) => sum + (r.count || 0), 0);
-                            
-                            // Find current role being processed
-                            if (!currentRole) {
-                                const inProgressRole = result.role_results.find(r => !r.success && r.count === 0);
-                                if (inProgressRole) {
-                                    currentRole = inProgressRole.role;
-                                } else {
-                                    // Find last role that's being processed
-                                    const lastRole = result.role_results[result.role_results.length - 1];
-                                    if (lastRole && !lastRole.success) {
-                                        currentRole = lastRole.role;
-                                    }
-                                }
-                            }
-                        } else if (result.data) {
-                            totalProfilesScraped = totalProfilesScraped || result.data.length || 0;
-                        }
-                    }
-                }
-            } catch (err) {
-                // If Python API check fails, use default progress
-                console.error('[Profile Controller] ❌ Could not get Python API status (active/waiting):', {
-                    error: err.message,
-                    stack: err.stack,
-                    pythonJobId: pythonJobId
-                });
-            }
+            // Estimate progress based on job data
 
             // If we have decision makers, calculate estimated progress
             if (jobData.decisionMakers && Array.isArray(jobData.decisionMakers)) {
@@ -304,75 +198,6 @@ exports.getScrapingStatus = async (req, res) => {
             // Check if Python API returned structured error details in job data
             if (jobData.errorDetails) {
                 errorDetails = jobData.errorDetails;
-            }
-        } else if (state === 'completed' || state === 'active' || state === 'waiting') {
-            // Try to get error details and step info from Python API if job is running or completed
-            // Note: This is a fallback/secondary check - primary check happens in active/waiting block above
-            // Only run if stepInfo wasn't already updated (to avoid duplicate API calls)
-            if (stepInfo.current_step === 'pending' && stepInfo.step_details?.message === 'Initializing...') {
-                try {
-                    if (pythonJobId) {
-                        const axios = require('axios');
-                        let scrapingServiceUrl = process.env.LINKEDIN_SCRAPING_SERVICE_URL || 'http://localhost:5001';
-                        // Remove trailing slash to avoid double slashes
-                        scrapingServiceUrl = scrapingServiceUrl.replace(/\/+$/, '');
-                        const pythonStatus = await axios.get(`${scrapingServiceUrl}/api/status/${pythonJobId}`, {
-                            timeout: 10000,
-                            headers: {
-                                'Connection': 'close'
-                            }
-                        });
-                        const pythonData = pythonStatus.data;
-                        
-                        // Extract step tracking information - always update if available
-                        if (pythonData && pythonData.current_step) {
-                            // Update currentRole and progress metrics from Python API
-                            currentRole = pythonData.current_role || currentRole || null;
-                            totalProfilesScraped = pythonData.profiles_scraped || totalProfilesScraped || 0;
-                            rolesCompleted = pythonData.roles_completed || rolesCompleted || 0;
-                            totalRoles = pythonData.total_roles || pythonData.roles_count || totalRoles || 0;
-                            
-                            // Update stepInfo with real-time Python API data
-                            stepInfo = {
-                                current_step: pythonData.current_step,
-                                step_details: pythonData.step_details || { 
-                                    step: pythonData.current_step, 
-                                    message: pythonData.step_details?.message || pythonData.message || '', 
-                                    progress: pythonData.step_details?.progress || pythonData.progress || 0 
-                                },
-                                login_status: pythonData.login_status || stepInfo.login_status || 'pending',
-                                login_attempt: pythonData.login_attempt || stepInfo.login_attempt || 0,
-                                login_max_attempts: pythonData.login_max_attempts || stepInfo.login_max_attempts || 3
-                            };
-                            
-                            // Log successful update (only in development)
-                            if (process.env.NODE_ENV === 'development') {
-                                console.log('[Profile Controller] ✅ Updated step info from Python API (fallback):', {
-                                    current_step: stepInfo.current_step,
-                                    step_details_message: stepInfo.step_details?.message,
-                                    login_status: stepInfo.login_status
-                                });
-                            }
-                        }
-                    
-                    // Extract error details from Python API response
-                    if (pythonData.error_details) {
-                        errorDetails = pythonData.error_details;
-                        if (pythonData.error) {
-                            errorMessage = pythonData.error;
-                        }
-                    } else if (pythonData.result?.error_details) {
-                        errorDetails = pythonData.result.error_details;
-                    }
-                    }
-                } catch (err) {
-                    // Log error but don't fail the request
-                    console.error('[Profile Controller] ❌ Could not get Python API status (fallback):', {
-                        error: err.message,
-                        stack: err.stack,
-                        pythonJobId: pythonJobId
-                    });
-                }
             }
         }
         

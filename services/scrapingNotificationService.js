@@ -9,17 +9,20 @@ class ScrapingNotificationService {
   constructor() {
     // Use OTP SMTP configuration (same as password reset emails)
     this.transporter = null;
-    this.initializeTransporter();
+    this.initialized = false;
   }
 
   async initializeTransporter() {
+    // Skip if already initialized
+    if (this.initialized) return;
+
     try {
       const smtpConfig = {
         host: process.env.OTP_SMTP_HOST || process.env.SMTP_HOST || 'smtp.gmail.com',
         port: parseInt(process.env.OTP_SMTP_PORT || process.env.SMTP_PORT || '587'),
         secure: process.env.OTP_SMTP_SECURE === 'true' || process.env.SMTP_SECURE === 'true',
-        auth: (process.env.OTP_SMTP_USER || process.env.SMTP_USER) && 
-              (process.env.OTP_SMTP_PASS || process.env.SMTP_PASS) ? {
+        auth: (process.env.OTP_SMTP_USER || process.env.SMTP_USER) &&
+          (process.env.OTP_SMTP_PASS || process.env.SMTP_PASS) ? {
           user: process.env.OTP_SMTP_USER || process.env.SMTP_USER,
           pass: process.env.OTP_SMTP_PASS || process.env.SMTP_PASS,
         } : undefined,
@@ -29,20 +32,21 @@ class ScrapingNotificationService {
         this.transporter = nodemailer.createTransport(smtpConfig);
         // Verify connection
         await this.transporter.verify();
-        console.log('✅ Scraping notification email service initialized and verified using OTP SMTP config');
       } else {
         console.warn('⚠️  SMTP not configured. Scraping email notifications will be disabled.');
         console.warn('⚠️  Set OTP_SMTP_HOST, OTP_SMTP_PORT, OTP_SMTP_USER, OTP_SMTP_PASS in .env to enable notifications.');
       }
+      this.initialized = true;
     } catch (error) {
       console.error('❌ Error initializing email transporter:', error.message);
       this.transporter = null;
+      this.initialized = true;
     }
   }
 
   // Ensure transporter is ready before sending
   async ensureTransporterReady() {
-    if (!this.transporter) {
+    if (!this.initialized) {
       await this.initializeTransporter();
     }
     return !!this.transporter;
@@ -54,7 +58,7 @@ class ScrapingNotificationService {
   async sendScrapingCompletionNotification(requirementId, profilesCount, success = true, errorMessage = null) {
     console.log(`\n📧 [Email Notification] Starting email notification for requirement ${requirementId}`);
     console.log(`📧 [Email Notification] Profiles count: ${profilesCount}, Success: ${success}`);
-    
+
     // Ensure transporter is ready
     const isReady = await this.ensureTransporterReady();
     if (!isReady || !this.transporter) {
@@ -95,8 +99,8 @@ class ScrapingNotificationService {
       console.log(`✅ [Email Notification] User found: ${user.email}`);
       console.log(`✅ [Email Notification] User name: ${user.first_name || ''} ${user.last_name || ''}`);
       const userEmail = user.email;
-      const userName = user.first_name && user.last_name 
-        ? `${user.first_name} ${user.last_name}` 
+      const userName = user.first_name && user.last_name
+        ? `${user.first_name} ${user.last_name}`
         : user.first_name || user.last_name || 'User';
       const requirementName = requirement.operation_name || 'Your Requirement';
 
@@ -257,7 +261,7 @@ class ScrapingNotificationService {
         console.log(`📧 [Email Notification] Sending failure email to: ${userEmail}`);
         console.log(`📧 [Email Notification] From: ${emailFrom}`);
         console.log(`📧 [Email Notification] Subject: ${subject}`);
-        
+
         const mailResult = await this.transporter.sendMail({
           from: emailFrom,
           to: userEmail,

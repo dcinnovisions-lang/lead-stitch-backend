@@ -20,8 +20,7 @@ pool.query('SELECT NOW()', (err, res) => {
     console.error('   2. Database exists (run: node utils/createDatabase.js)');
     console.error('   3. DB_PASSWORD in .env is correct');
   } else {
-    console.log('✅ Database connected successfully');
-    console.log(`   Database: ${process.env.DB_NAME || 'lead_stitch'}`);
+    console.log('✅ Database connected');
   }
 });
 
