@@ -16,6 +16,9 @@ router.delete('/:id', campaignController.deleteCampaign);
 // Campaign Recipients
 router.get('/:id/recipients', campaignController.getCampaignRecipients);
 
+// Mark recipient as replied
+router.post('/:id/recipients/:recipientId/reply', campaignController.markRecipientReplied);
+
 // Send Campaign
 router.post('/:id/send', campaignController.sendCampaign);
 

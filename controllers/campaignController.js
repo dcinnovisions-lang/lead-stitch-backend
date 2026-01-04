@@ -783,6 +783,60 @@ exports.getCampaignRecipients = async (req, res) => {
     }
 };
 
+// Mark recipient as replied (manual or webhook)
+exports.markRecipientReplied = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { id } = req.params; // campaign id
+        const { recipientId, replySubject, replyBody } = req.body;
+
+        if (!recipientId) {
+            return res.status(400).json({ message: 'recipientId is required' });
+        }
+
+        // Verify campaign belongs to user
+        const campaign = await Campaigns.findOne({
+            where: {
+                id: id,
+                user_id: userId
+            }
+        });
+
+        if (!campaign) {
+            return res.status(404).json({ message: 'Campaign not found' });
+        }
+
+        // Verify recipient belongs to this campaign
+        const recipient = await CampaignRecipients.findOne({
+            where: {
+                id: recipientId,
+                campaign_id: id
+            }
+        });
+
+        if (!recipient) {
+            return res.status(404).json({ message: 'Recipient not found in this campaign' });
+        }
+
+        // Use emailService to handle reply (this updates status, logs event, and emits socket events)
+        const emailService = require('../services/emailService');
+        await emailService.handleReply(recipientId, replySubject, replyBody);
+
+        res.json({
+            success: true,
+            message: 'Recipient marked as replied',
+            recipientId
+        });
+    } catch (error) {
+        console.error('Error marking recipient as replied:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to mark recipient as replied',
+            error: error.message
+        });
+    }
+};
+
 // Send campaign emails to all recipients (async via Bull queue)
 exports.sendCampaign = async (req, res) => {
     try {
