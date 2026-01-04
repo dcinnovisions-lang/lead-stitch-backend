@@ -35,12 +35,19 @@ class ReplyDetectionService {
                 return false;
             }
 
+            // FIX: Check if this is a reply BEFORE querying database (early exit optimization)
+            const isReply = inReplyTo || references || this.isLikelyReply(subject, body);
+            if (!isReply) {
+                console.warn(`⚠️ [REPLY] Email doesn't appear to be a reply. Subject: ${subject}`);
+                return false;
+            }
+
             // Try to find the recipient by email
             const recipient = await CampaignRecipients.findOne({
                 where: {
                     email: to // Find recipient who received the original email
                 },
-                attributes: ['id', 'campaign_id', 'email'],
+                attributes: ['id', 'campaign_id', 'email', 'status'],
                 order: [['created_at', 'DESC']] // Get most recent matching recipient
             });
 
@@ -49,11 +56,9 @@ class ReplyDetectionService {
                 return false;
             }
 
-            // Check if this is actually a reply (by In-Reply-To or References header)
-            const isReply = inReplyTo || references || this.isLikelyReply(subject, body);
-
-            if (!isReply) {
-                console.warn(`⚠️ [REPLY] Email doesn't appear to be a reply. Subject: ${subject}`);
+            // FIX: Check if already replied (prevent duplicate/race condition)
+            if (recipient.status === 'replied') {
+                console.warn(`⚠️ [REPLY] Recipient already marked as replied: ${recipient.id}`);
                 return false;
             }
 

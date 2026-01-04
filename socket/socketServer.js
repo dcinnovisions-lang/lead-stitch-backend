@@ -2,6 +2,7 @@ const { Server } = require('socket.io');
 const { authenticateSocket } = require('../middleware/socketAuth');
 
 let io = null;
+let connectedClients = 0; // FIX: Move outside to prevent memory leak
 
 /**
  * Initialize Socket.io server
@@ -18,14 +19,13 @@ function initializeSocket(server) {
         transports: ['websocket', 'polling'], // Fallback to polling
         pingTimeout: 60000,
         pingInterval: 25000,
-        allowEIO3: true // Support older Socket.io clients
+        allowEIO3: true, // Support older Socket.io clients
+        maxHttpBufferSize: 1e6, // FIX: Limit to 1MB to prevent memory bloat
+        allowUpgrades: true
     });
 
     // Authentication middleware
     io.use(authenticateSocket);
-
-    // Track connected clients
-    let connectedClients = 0;
 
     io.on('connection', (socket) => {
         connectedClients++;

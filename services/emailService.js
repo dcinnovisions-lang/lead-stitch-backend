@@ -901,14 +901,18 @@ class EmailService {
             // Batch update pixel and recipient status
             const { recipient_id, campaign_id } = pixel;
 
-            // Update pixel and recipient in parallel for better performance
-            await Promise.all([
-                EmailTrackingPixels.update(updateData, {
-                    where: { id: pixelId }
-                }),
-                // Only update recipient status if first open
-                isFirstOpen ? this.updateRecipientStatus(recipient_id, 'opened') : Promise.resolve()
-            ]);
+            // Update pixel first (critical)
+            await EmailTrackingPixels.update(updateData, {
+                where: { id: pixelId }
+            });
+
+            // Only update recipient status if first open (avoid N+1 queries with getCampaignStats)
+            if (isFirstOpen) {
+                await CampaignRecipients.update(
+                    { status: 'opened', opened_at: now },
+                    { where: { id: recipient_id } }
+                );
+            }
 
             // Log tracking event (ALWAYS, not just first open)
             await this.logTrackingEvent({
@@ -928,18 +932,7 @@ class EmailService {
             if (campaign_id && recipient_id) {
                 console.log(`👁️ [TRACKING] Email opened - Campaign: ${campaign_id}, Recipient: ${recipient_id}, Count: ${updateData.opened_count}, First: ${isFirstOpen}`);
 
-                // Get stats for emission
-                const stats = await this.getCampaignStats(campaign_id);
-
-                // Update campaign opened count (only first time affects count)
-                if (isFirstOpen) {
-                    await EmailCampaigns.update(
-                        { opened_count: stats.opened },
-                        { where: { id: campaign_id } }
-                    );
-                }
-
-                // ALWAYS emit recipient update
+                // Emit recipient update immediately (don't wait for stats query)
                 console.log(`📡 [REALTIME] Triggering real-time update for email open - Campaign: ${campaign_id}, Recipient: ${recipient_id}`);
                 emitRecipientUpdate(campaign_id, recipient_id, 'opened', {
                     isFirstOpen,
@@ -947,11 +940,43 @@ class EmailService {
                     timestamp: now.toISOString()
                 });
 
-                // ALWAYS emit updated stats
-                emitCampaignStats(campaign_id, stats);
+                // FIX: Update stats in background (non-blocking) to prevent N+1 queries
+                if (isFirstOpen) {
+                    this.updateCampaignStatsAsync(campaign_id).catch(err => {
+                        console.error('Error updating campaign stats:', err);
+                    });
+                }
             }
         } catch (error) {
             console.error('Error tracking email open:', error);
+        }
+    }
+
+    /**
+     * Update campaign stats asynchronously (non-blocking)
+     * Prevents N+1 query problem and database bottleneck
+     */
+    async updateCampaignStatsAsync(campaignId) {
+        try {
+            if (!campaignId) return;
+            
+            const stats = await this.getCampaignStats(campaignId);
+            
+            // Update all counts in single query
+            await EmailCampaigns.update({
+                opened_count: stats.opened,
+                clicked_count: stats.clicked,
+                replied_count: stats.replied,
+                bounced_count: stats.bounced,
+                failed_count: stats.failed
+            }, {
+                where: { id: campaignId }
+            });
+            
+            // Emit updated stats
+            emitCampaignStats(campaignId, stats);
+        } catch (error) {
+            console.error('Error updating campaign stats:', error);
         }
     }
 
@@ -985,8 +1010,13 @@ class EmailService {
 
             const { recipient_id, original_url, campaign_id } = link;
 
-            // Update recipient status (only if not already clicked)
-            await this.updateRecipientStatus(recipient_id, 'clicked');
+            // FIX: Update recipient status directly (avoid N+1 in updateRecipientStatus)
+            if (isFirstClick) {
+                await CampaignRecipients.update(
+                    { status: 'clicked', clicked_at: now },
+                    { where: { id: recipient_id } }
+                );
+            }
 
             // Log tracking event
             await this.logTrackingEvent({
@@ -1007,18 +1037,7 @@ class EmailService {
             if (campaign_id && recipient_id) {
                 console.log(`🔗 [TRACKING] Link clicked - Campaign: ${campaign_id}, Recipient: ${recipient_id}, URL: ${original_url.substring(0, 50)}..., Count: ${updateData.click_count}, First: ${isFirstClick}`);
 
-                // Optimize: Get stats once and use for both update and emit
-                const stats = await this.getCampaignStats(campaign_id);
-
-                // Update campaign clicked count (only on first click)
-                if (isFirstClick) {
-                    await EmailCampaigns.update(
-                        { clicked_count: stats.clicked },
-                        { where: { id: campaign_id } }
-                    );
-                }
-
-                // ALWAYS emit real-time update
+                // Emit immediately (don't wait for stats query)
                 console.log(`📡 [REALTIME] Triggering real-time update for link click - Campaign: ${campaign_id}, Recipient: ${recipient_id}`);
                 emitRecipientUpdate(campaign_id, recipient_id, 'clicked', {
                     link: original_url,
@@ -1027,8 +1046,12 @@ class EmailService {
                     timestamp: now.toISOString()
                 });
 
-                // ALWAYS emit updated stats
-                emitCampaignStats(campaign_id, stats);
+                // FIX: Update stats in background (non-blocking)
+                if (isFirstClick) {
+                    this.updateCampaignStatsAsync(campaign_id).catch(err => {
+                        console.error('Error updating campaign stats:', err);
+                    });
+                }
             }
 
             return original_url;
