@@ -2,7 +2,6 @@ const { Server } = require('socket.io');
 const { authenticateSocket } = require('../middleware/socketAuth');
 
 let io = null;
-let connectedClients = 0; // FIX: Move outside to prevent memory leak
 
 /**
  * Initialize Socket.io server
@@ -19,13 +18,14 @@ function initializeSocket(server) {
         transports: ['websocket', 'polling'], // Fallback to polling
         pingTimeout: 60000,
         pingInterval: 25000,
-        allowEIO3: true, // Support older Socket.io clients
-        maxHttpBufferSize: 1e6, // FIX: Limit to 1MB to prevent memory bloat
-        allowUpgrades: true
+        allowEIO3: true // Support older Socket.io clients
     });
 
     // Authentication middleware
     io.use(authenticateSocket);
+
+    // Track connected clients
+    let connectedClients = 0;
 
     io.on('connection', (socket) => {
         connectedClients++;
@@ -141,39 +141,23 @@ function emitCampaignStats(campaignId, stats) {
  * @param {Object} additionalData - Additional data to include
  */
 function emitRecipientUpdate(campaignId, recipientId, status, additionalData = {}) {
-    if (!io) {
+    if (io) {
+        const payload = {
+            recipientId,
+            status,
+            ...additionalData,
+            timestamp: new Date().toISOString()
+        };
+        console.log(`📧 [REALTIME] Emitting recipient-update for campaign ${campaignId}:`, {
+            recipientId,
+            status,
+            email: additionalData.email || 'N/A',
+            ...(additionalData.error ? { error: additionalData.error.substring(0, 50) } : {}),
+            ...(additionalData.link ? { link: additionalData.link.substring(0, 50) } : {})
+        });
+        io.to(`campaign:${campaignId}`).emit('recipient-update', payload);
+    } else {
         console.warn(`⚠️ [REALTIME] Socket.io not initialized, cannot emit recipient-update for campaign ${campaignId}, recipient ${recipientId}`);
-        return;
-    }
-
-    const payload = {
-        recipientId,
-        status,
-        ...additionalData,
-        timestamp: new Date().toISOString()
-    };
-
-    const roomName = `campaign:${campaignId}`;
-    
-    // Get number of connected sockets in room
-    const room = io.sockets.adapter.rooms.get(roomName);
-    const clientCount = room ? room.size : 0;
-
-    console.log(`📧 [REALTIME] Emitting recipient-update for campaign ${campaignId}:`, {
-        recipientId,
-        status,
-        clientsInRoom: clientCount,
-        email: additionalData.email || 'N/A',
-        ...(additionalData.error ? { error: additionalData.error.substring(0, 50) } : {}),
-        ...(additionalData.link ? { link: additionalData.link.substring(0, 50) } : {})
-    });
-
-    // Emit to room
-    io.to(roomName).emit('recipient-update', payload);
-
-    // If no clients in room, log warning
-    if (clientCount === 0) {
-        console.warn(`⚠️ [REALTIME] No clients subscribed to room ${roomName}. Update emitted but won't reach any client.`);
     }
 }
 
