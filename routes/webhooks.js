@@ -108,6 +108,7 @@ router.post('/email-webhook', async (req, res) => {
       success: false,
       error: error.message
     });
+  }
 });
 
 module.exports = router;
