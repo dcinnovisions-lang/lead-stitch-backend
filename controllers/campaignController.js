@@ -1,4 +1,13 @@
-const { Campaigns, CampaignRecipients, EmailCampaigns, EmailSMTPCredentials, BusinessRequirements, LinkedInProfiles, EmailAddresses, PsqlSequelize } = require('../config/model');
+const {
+    Campaigns,
+    CampaignRecipients,
+    EmailCampaigns,
+    EmailSMTPCredentials,
+    BusinessRequirements,
+    LinkedInProfiles,
+    EmailAddresses,
+    PsqlSequelize
+} = require('../config/model');
 const { Op } = require('sequelize');
 const campaignQueue = require('../queues/campaignQueue');
 
@@ -103,7 +112,6 @@ exports.getCampaigns = async (req, res) => {
                 console.log(`  Campaign ${campaign.id}: ${campaign.total_recipients} recipients`)
 
                 // Get status counts using Sequelize
-                const { PsqlSequelize } = require('../config/model');
                 const statusCounts = await CampaignRecipients.findAll({
                     where: { campaign_id: campaign.id },
                     attributes: [
@@ -143,7 +151,7 @@ exports.getCampaign = async (req, res) => {
 
         // Try campaigns table first (current schema) with email_campaigns included
         let campaign = await Campaigns.findOne({
-            where: { 
+            where: {
                 id: id,
                 user_id: userId
             },
@@ -158,22 +166,22 @@ exports.getCampaign = async (req, res) => {
         // If not found, try email_campaigns table (newer schema)
         if (!campaign) {
             const emailCampaign = await EmailCampaigns.findOne({
-                where: { 
+                where: {
                     id: id,
                     user_id: userId
                 }
             });
-            
+
             if (!emailCampaign) {
                 return res.status(404).json({ message: 'Campaign not found' });
             }
-            
+
             // Return email_campaign data directly
             const emailCampaignData = emailCampaign.toJSON();
             const recipientCount = await CampaignRecipients.count({
                 where: { campaign_id: id }
             });
-            
+
             return res.json({
                 ...emailCampaignData,
                 total_recipients: emailCampaignData.total_recipients || recipientCount || 0
@@ -183,7 +191,7 @@ exports.getCampaign = async (req, res) => {
         // Merge campaign and email_campaign data
         const campaignData = campaign.toJSON();
         const emailCampaignData = campaignData.email_campaign || {};
-        
+
         const result = {
             id: campaignData.id,
             name: campaignData.name,
@@ -281,7 +289,7 @@ exports.createCampaign = async (req, res) => {
 
         // Verify SMTP credential belongs to user
         const smtpCheck = await EmailSMTPCredentials.findOne({
-            where: { 
+            where: {
                 id: smtp_credential_id,
                 user_id: userId,
                 is_verified: true
@@ -495,7 +503,7 @@ exports.updateCampaign = async (req, res) => {
         } = req.body;
 
         const campaign = await Campaigns.findOne({
-            where: { 
+            where: {
                 id: id,
                 user_id: userId
             },
@@ -634,7 +642,7 @@ exports.updateCampaign = async (req, res) => {
 
         // Get updated campaign
         const updatedCampaign = await Campaigns.findOne({
-            where: { 
+            where: {
                 id: id,
                 user_id: userId
             },
@@ -684,7 +692,7 @@ exports.deleteCampaign = async (req, res) => {
         const { id } = req.params;
 
         const emailCampaign = await EmailCampaigns.findOne({
-            where: { 
+            where: {
                 id: id,
                 user_id: userId
             }
@@ -693,7 +701,7 @@ exports.deleteCampaign = async (req, res) => {
         if (!emailCampaign) {
             // Also check campaigns table
             const campaign = await Campaigns.findOne({
-                where: { 
+                where: {
                     id: id,
                     user_id: userId
                 }
@@ -744,7 +752,7 @@ exports.getCampaignRecipients = async (req, res) => {
 
         // Verify campaign belongs to user (check both tables)
         let campaignCheck = await Campaigns.findOne({
-            where: { 
+            where: {
                 id: id,
                 user_id: userId
             }
@@ -752,7 +760,7 @@ exports.getCampaignRecipients = async (req, res) => {
         if (!campaignCheck) {
             // Try email_campaigns table as fallback
             campaignCheck = await EmailCampaigns.findOne({
-                where: { 
+                where: {
                     id: id,
                     user_id: userId
                 }
@@ -784,7 +792,7 @@ exports.sendCampaign = async (req, res) => {
 
         // Get campaign to validate
         const campaign = await Campaigns.findOne({
-            where: { 
+            where: {
                 id: id,
                 user_id: userId
             },
@@ -802,61 +810,61 @@ exports.sendCampaign = async (req, res) => {
 
         const campaignData = campaign.toJSON();
         const emailCampaignData = campaignData.email_campaign || {};
-        
-        console.log('📋 Campaign found:', { 
-            id: campaignData.id, 
-            name: campaignData.name, 
-            status: campaignData.status 
+
+        console.log('📋 Campaign found:', {
+            id: campaignData.id,
+            name: campaignData.name,
+            status: campaignData.status
         });
 
         // Check if campaign can be sent
         if (campaignData.status === 'sending') {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                message: 'Campaign is already being sent' 
+                message: 'Campaign is already being sent'
             });
         }
-        
+
         if (campaignData.status === 'completed') {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                message: 'Campaign has already been completed' 
+                message: 'Campaign has already been completed'
             });
         }
-        
+
         if (campaignData.status === 'paused') {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                message: 'Campaign is paused. Please resume it first.' 
+                message: 'Campaign is paused. Please resume it first.'
             });
         }
 
         // Validate campaign has required data
         if (!emailCampaignData.smtp_credential_id) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                message: 'Campaign does not have SMTP credentials configured. Please edit the campaign and add SMTP credentials.' 
+                message: 'Campaign does not have SMTP credentials configured. Please edit the campaign and add SMTP credentials.'
             });
         }
 
         if (!emailCampaignData.subject || !emailCampaignData.body_html) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                message: 'Campaign is missing subject or body content. Please edit the campaign and add email content.' 
+                message: 'Campaign is missing subject or body content. Please edit the campaign and add email content.'
             });
         }
 
         // Check if there's already a job for this campaign
         const existingJobs = await campaignQueue.getJobs(['active', 'waiting', 'delayed']);
-        const existingJob = existingJobs.find(job => 
-            job.data.campaignId === id && 
+        const existingJob = existingJobs.find(job =>
+            job.data.campaignId === id &&
             (job.opts.jobId === `campaign-${id}` || job.id === `campaign-${id}`)
         );
 
         if (existingJob) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 success: false,
-                message: 'Campaign is already queued for sending' 
+                message: 'Campaign is already queued for sending'
             });
         }
 
@@ -888,10 +896,10 @@ exports.sendCampaign = async (req, res) => {
             stack: error.stack
         });
 
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
             message: 'Failed to start campaign sending',
-            error: error.message 
+            error: error.message
         });
     }
 };
