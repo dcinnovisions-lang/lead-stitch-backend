@@ -818,9 +818,16 @@ exports.markRecipientReplied = async (req, res) => {
             return res.status(404).json({ message: 'Recipient not found in this campaign' });
         }
 
-        // Use emailService to handle reply (this updates status, logs event, and emits socket events)
-        const emailService = require('../services/emailService');
-        await emailService.handleReply(recipientId, replySubject, replyBody);
+        // Use replyDetectionService to mark as replied (this updates status, logs event, and emits socket events)
+        const replyDetectionService = require('../services/replyDetectionService');
+        const success = await replyDetectionService.markAsReplied(recipientId, replySubject, replyBody);
+
+        if (!success) {
+            return res.status(400).json({
+                success: false,
+                message: 'Failed to mark recipient as replied'
+            });
+        }
 
         res.json({
             success: true,

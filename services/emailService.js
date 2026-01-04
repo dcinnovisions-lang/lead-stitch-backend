@@ -910,7 +910,7 @@ class EmailService {
                 isFirstOpen ? this.updateRecipientStatus(recipient_id, 'opened') : Promise.resolve()
             ]);
 
-            // Log tracking event
+            // Log tracking event (ALWAYS, not just first open)
             await this.logTrackingEvent({
                 campaignId: campaign_id,
                 recipientId: recipient_id,
@@ -919,32 +919,36 @@ class EmailService {
                     ipAddress,
                     userAgent,
                     timestamp: new Date().toISOString(),
+                    isFirstOpen,
+                    openCount: updateData.opened_count
                 },
             });
 
-            // Only update campaign stats and emit events if first open
-            if (isFirstOpen && campaign_id) {
-                console.log(`👁️ [TRACKING] Email opened - Campaign: ${campaign_id}, Recipient: ${recipient_id}`);
+            // ALWAYS emit real-time updates for EVERY open event
+            if (campaign_id && recipient_id) {
+                console.log(`👁️ [TRACKING] Email opened - Campaign: ${campaign_id}, Recipient: ${recipient_id}, Count: ${updateData.opened_count}, First: ${isFirstOpen}`);
 
-                // Optimize: Get stats once and use for both update and emit
+                // Get stats for emission
                 const stats = await this.getCampaignStats(campaign_id);
 
-                // Update campaign opened count
-                await EmailCampaigns.update(
-                    { opened_count: stats.opened },
-                    { where: { id: campaign_id } }
-                );
+                // Update campaign opened count (only first time affects count)
+                if (isFirstOpen) {
+                    await EmailCampaigns.update(
+                        { opened_count: stats.opened },
+                        { where: { id: campaign_id } }
+                    );
+                }
 
-                // Emit real-time updates
+                // ALWAYS emit recipient update
                 console.log(`📡 [REALTIME] Triggering real-time update for email open - Campaign: ${campaign_id}, Recipient: ${recipient_id}`);
                 emitRecipientUpdate(campaign_id, recipient_id, 'opened', {
+                    isFirstOpen,
+                    openCount: updateData.opened_count,
                     timestamp: now.toISOString()
                 });
 
-                // Emit updated stats
+                // ALWAYS emit updated stats
                 emitCampaignStats(campaign_id, stats);
-            } else if (!isFirstOpen) {
-                console.log(`👁️ [TRACKING] Email opened again (not first time) - Campaign: ${campaign_id}, Recipient: ${recipient_id}, Count: ${updateData.opened_count}`);
             }
         } catch (error) {
             console.error('Error tracking email open:', error);
@@ -963,13 +967,16 @@ class EmailService {
                 return null;
             }
 
+            const now = new Date();
+            const isFirstClick = !link.first_clicked_at;
+
             const updateData = {
                 click_count: (link.click_count || 0) + 1,
-                last_clicked_at: new Date()
+                last_clicked_at: now
             };
 
-            if (!link.first_clicked_at) {
-                updateData.first_clicked_at = new Date();
+            if (isFirstClick) {
+                updateData.first_clicked_at = now;
             }
 
             await EmailLinkTracking.update(updateData, {
@@ -991,39 +998,37 @@ class EmailService {
                     ipAddress,
                     userAgent,
                     timestamp: new Date().toISOString(),
+                    isFirstClick,
+                    clickCount: updateData.click_count
                 },
             });
 
-            // Check if this is first click
-            const recipient = await CampaignRecipients.findByPk(recipient_id, {
-                attributes: ['clicked_at']
-            });
-            const isFirstClick = !recipient?.clicked_at;
-
-            // Only update campaign stats and emit events if first click
-            if (isFirstClick && campaign_id) {
-                console.log(`🔗 [TRACKING] Link clicked - Campaign: ${campaign_id}, Recipient: ${recipient_id}, URL: ${original_url.substring(0, 50)}...`);
+            // ALWAYS emit real-time updates for EVERY click event
+            if (campaign_id && recipient_id) {
+                console.log(`🔗 [TRACKING] Link clicked - Campaign: ${campaign_id}, Recipient: ${recipient_id}, URL: ${original_url.substring(0, 50)}..., Count: ${updateData.click_count}, First: ${isFirstClick}`);
 
                 // Optimize: Get stats once and use for both update and emit
                 const stats = await this.getCampaignStats(campaign_id);
 
-                // Update campaign clicked count
-                await EmailCampaigns.update(
-                    { clicked_count: stats.clicked },
-                    { where: { id: campaign_id } }
-                );
+                // Update campaign clicked count (only on first click)
+                if (isFirstClick) {
+                    await EmailCampaigns.update(
+                        { clicked_count: stats.clicked },
+                        { where: { id: campaign_id } }
+                    );
+                }
 
-                // Emit real-time update
+                // ALWAYS emit real-time update
                 console.log(`📡 [REALTIME] Triggering real-time update for link click - Campaign: ${campaign_id}, Recipient: ${recipient_id}`);
                 emitRecipientUpdate(campaign_id, recipient_id, 'clicked', {
                     link: original_url,
-                    timestamp: new Date().toISOString()
+                    isFirstClick,
+                    clickCount: updateData.click_count,
+                    timestamp: now.toISOString()
                 });
 
-                // Emit updated stats
+                // ALWAYS emit updated stats
                 emitCampaignStats(campaign_id, stats);
-            } else if (!isFirstClick) {
-                console.log(`🔗 [TRACKING] Link clicked again (not first time) - Campaign: ${campaign_id}, Recipient: ${recipient_id}, Count: ${updateData.click_count}`);
             }
 
             return original_url;
