@@ -241,8 +241,8 @@ campaignQueue.process('send-campaign', async (job) => {
                 // The emailService will validate and override if needed
                 const emailResult = await emailService.sendEmail({
                     smtpCredentialId,
-                    // to: recipientData.email,
-                    to: 'sdineshkumar1208@gmail.com',
+                    to: recipientData.email,
+                    // to: 'sdineshkumar1208@gmail.com',
                     subject,
                     html: bodyHtml,
                     text: bodyText,
