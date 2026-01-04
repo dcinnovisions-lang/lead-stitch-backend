@@ -243,6 +243,7 @@ var EmailCampaigns = sequelize.define('email_campaigns', {
 var EmailTrackingPixels = sequelize.define('email_tracking_pixels', {
     id: { type: Sequelize.UUID, defaultValue: Sequelize.UUIDV1, primaryKey: true },
     recipient_id: { type: Sequelize.UUID, allowNull: false },
+    campaign_id: { type: Sequelize.UUID, allowNull: true },
     pixel_url: { type: Sequelize.STRING, unique: true, allowNull: false },
     is_opened: { type: Sequelize.BOOLEAN, defaultValue: false },
     opened_at: { type: Sequelize.DATE },

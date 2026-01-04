@@ -129,6 +129,9 @@ ON email_tracking_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_email_tracking_pixels_recipient_id 
 ON email_tracking_pixels(recipient_id);
 
+CREATE INDEX IF NOT EXISTS idx_email_tracking_pixels_campaign_id 
+ON email_tracking_pixels(campaign_id);
+
 CREATE INDEX IF NOT EXISTS idx_email_tracking_pixels_url 
 ON email_tracking_pixels(pixel_url);
 
