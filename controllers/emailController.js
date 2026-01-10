@@ -372,80 +372,80 @@ exports.sendTestEmail = async (req, res) => {
 
 // Track email open (pixel) - Production Optimized
 exports.trackEmailOpen = async (req, res) => {
-  // Transparent 1x1 GIF pixel (base64 encoded)
-  const pixel = Buffer.from(
-    'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
-    'base64'
-  );
+    // Transparent 1x1 GIF pixel (base64 encoded)
+    const pixel = Buffer.from(
+        'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+        'base64'
+    );
 
-  try {
-    const { pixelId } = req.params;
-    
-    // Extract IP address (handle proxies)
-    const ipAddress = req.ip || 
-                     req.connection.remoteAddress || 
-                     (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 
-                     'unknown';
-    
-    const userAgent = req.get('user-agent') || 'unknown';
+    try {
+        const { pixelId } = req.params;
 
-    // Log only in development
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('📧 Tracking pixel accessed:', {
-        pixelId,
-        ipAddress,
-        userAgent: userAgent.substring(0, 100),
-        timestamp: new Date().toISOString()
-      });
+        // Extract IP address (handle proxies)
+        const ipAddress = req.ip ||
+            req.connection.remoteAddress ||
+            (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+            'unknown';
+
+        const userAgent = req.get('user-agent') || 'unknown';
+
+        // Log only in development
+        if (process.env.NODE_ENV !== 'production') {
+            console.log('📧 Tracking pixel accessed:', {
+                pixelId,
+                ipAddress,
+                userAgent: userAgent.substring(0, 100),
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        // Track the open event (non-blocking - don't wait for it)
+        emailService.trackEmailOpen(pixelId, ipAddress, userAgent).catch(err => {
+            // Log error but don't fail the request
+            if (process.env.NODE_ENV !== 'production') {
+                console.error('Error tracking email open:', err);
+            }
+        });
+
+        // Return pixel immediately with optimized headers
+        res.writeHead(200, {
+            'Content-Type': 'image/gif',
+            'Content-Length': pixel.length,
+            'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'X-Content-Type-Options': 'nosniff',
+            // Allow CORS for email clients
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET',
+        });
+        res.end(pixel);
+    } catch (error) {
+        // Always return pixel even on error (for better deliverability)
+        if (process.env.NODE_ENV !== 'production') {
+            console.error('Track email open error:', error);
+        }
+        res.writeHead(200, {
+            'Content-Type': 'image/gif',
+            'Content-Length': pixel.length,
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Access-Control-Allow-Origin': '*'
+        });
+        res.end(pixel);
     }
-
-    // Track the open event (non-blocking - don't wait for it)
-    emailService.trackEmailOpen(pixelId, ipAddress, userAgent).catch(err => {
-      // Log error but don't fail the request
-      if (process.env.NODE_ENV !== 'production') {
-        console.error('Error tracking email open:', err);
-      }
-    });
-
-    // Return pixel immediately with optimized headers
-    res.writeHead(200, {
-      'Content-Type': 'image/gif',
-      'Content-Length': pixel.length,
-      'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-      'X-Content-Type-Options': 'nosniff',
-      // Allow CORS for email clients
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET',
-    });
-    res.end(pixel);
-  } catch (error) {
-    // Always return pixel even on error (for better deliverability)
-    if (process.env.NODE_ENV !== 'production') {
-      console.error('Track email open error:', error);
-    }
-    res.writeHead(200, { 
-      'Content-Type': 'image/gif', 
-      'Content-Length': pixel.length,
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
-      'Access-Control-Allow-Origin': '*'
-    });
-    res.end(pixel);
-  }
 };
 
 // Track link click - Production Optimized
 exports.trackLinkClick = async (req, res) => {
     try {
         const { linkId } = req.params;
-        
+
         // Extract IP address (handle proxies)
-        const ipAddress = req.ip || 
-                         req.connection.remoteAddress || 
-                         (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || 
-                         'unknown';
-        
+        const ipAddress = req.ip ||
+            req.connection.remoteAddress ||
+            (req.headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+            'unknown';
+
         const userAgent = req.get('user-agent') || 'unknown';
 
         // Track click (non-blocking)
@@ -473,11 +473,11 @@ exports.trackLinkClick = async (req, res) => {
 
 // Handle unsubscribe
 exports.handleUnsubscribe = async (req, res) => {
-  try {
-    const { email, recipientId } = req.query || req.body;
-    
-    if (!email && !recipientId) {
-      return res.status(400).send(`
+    try {
+        const { email, recipientId } = req.query || req.body;
+
+        if (!email && !recipientId) {
+            return res.status(400).send(`
         <html>
           <body style="font-family: Arial, sans-serif; padding: 40px; text-align: center;">
             <h2>Unsubscribe Failed</h2>
@@ -485,12 +485,12 @@ exports.handleUnsubscribe = async (req, res) => {
           </body>
         </html>
       `);
-    }
+        }
 
-    const result = await emailService.handleUnsubscribe(email, recipientId);
+        const result = await emailService.handleUnsubscribe(email, recipientId);
 
-    if (result.success) {
-      res.send(`
+        if (result.success) {
+            res.send(`
         <html>
           <body style="font-family: Arial, sans-serif; padding: 40px; text-align: center;">
             <h2 style="color: #4CAF50;">Successfully Unsubscribed</h2>
@@ -499,8 +499,8 @@ exports.handleUnsubscribe = async (req, res) => {
           </body>
         </html>
       `);
-    } else {
-      res.status(500).send(`
+        } else {
+            res.status(500).send(`
         <html>
           <body style="font-family: Arial, sans-serif; padding: 40px; text-align: center;">
             <h2 style="color: #f44336;">Unsubscribe Failed</h2>
@@ -509,10 +509,10 @@ exports.handleUnsubscribe = async (req, res) => {
           </body>
         </html>
       `);
-    }
-  } catch (error) {
-    console.error('Handle unsubscribe error:', error);
-    res.status(500).send(`
+        }
+    } catch (error) {
+        console.error('Handle unsubscribe error:', error);
+        res.status(500).send(`
       <html>
         <body style="font-family: Arial, sans-serif; padding: 40px; text-align: center;">
           <h2 style="color: #f44336;">Error</h2>
@@ -520,7 +520,7 @@ exports.handleUnsubscribe = async (req, res) => {
         </body>
       </html>
     `);
-  }
+    }
 };
 
 // Get common SMTP providers configuration
@@ -748,4 +748,4 @@ exports.deleteTemplate = async (req, res) => {
         console.error('Error deleting template:', error);
         res.status(500).json({ message: 'Failed to delete template', error: error.message });
     }
-  }
+}
