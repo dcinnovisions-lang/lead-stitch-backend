@@ -479,69 +479,73 @@ function extractJSONFromResponse(content) {
 
 /**
  * Generate prompt for industry identification from requirement text
- * Returns a single industry value
+ * Returns top 3 industries ordered by best match
  */
 function generateIndustryIdentificationPrompt(requirementText, attemptNumber = 1) {
-    const promptVariations = [
-        // Attempt 1: Comprehensive prompt
-        `You are an expert business analyst specializing in industry classification.
+        const promptVariations = [
+                // Attempt 1: Comprehensive prompt
+                `You are an expert business analyst specializing in industry classification.
 
 Business Requirement: "${requirementText}"
 
-Your task: Identify the PRIMARY industry for this business requirement. Return ONLY a single industry name (e.g., "Technology", "Healthcare", "Finance", "Retail", "Manufacturing", "Education", etc.).
+Your task: Identify the top 3 industries that best match this requirement.
 
-Important:
-- Return ONLY the industry name as a single word or short phrase (2-3 words max)
-- Use standard industry classifications
-- Be specific but not overly detailed (e.g., "Technology" not "Enterprise Software Technology Sector")
-- Do NOT include any explanations, reasoning, or additional text
-- Return ONLY the industry name
+Return JSON ONLY with the shape:
+{
+    "industries": ["Primary industry (best match)", "Second best", "Third best"]
+}
+
+Rules:
+- industries array MUST have 3 distinct items, ordered best to worst match
+- Use standard industry names (e.g., Technology, Healthcare, Finance, Retail, Manufacturing, Education, Real Estate, Logistics)
+- Keep each industry to a single word or short phrase (max 3 words)
+- No explanations, markdown, or extra text
 
 Examples:
 - Input: "I want to sell enterprise software to tech companies in Europe"
-  Output: Technology
+    Output: {"industries":["Technology","Software","Information Technology"]}
 
 - Input: "I need to find hospitals to sell medical equipment to"
-  Output: Healthcare
+    Output: {"industries":["Healthcare","Medical Devices","Hospitals"]}
 
-- Input: "Looking to sell books to libraries and schools"
-  Output: Education
+Return ONLY the JSON object described above.`,
 
-- Input: "I want to sell CRM software to financial institutions"
-  Output: Finance
+                // Attempt 2: More direct
+                `Identify the top 3 industries for: "${requirementText}"
 
-Return ONLY the industry name (no JSON, no markdown, no explanations):`,
+Return JSON ONLY: {"industries":["best","second","third"]}
 
-        // Attempt 2: More direct
-        `Identify the industry for: "${requirementText}"
+industries (exactly 3, ordered best to worst):`,
 
-Return ONLY the industry name (one word or short phrase). Examples: Technology, Healthcare, Finance, Retail, Manufacturing, Education, Real Estate, Legal.
+                // Attempt 3: Simplest
+                `"${requirementText}"
 
-Industry:`,
+Return JSON ONLY with industries array of 3 items (best to worst): {"industries":["best","second","third"]}`,
+        ];
 
-        // Attempt 3: Simplest
-        `"${requirementText}"
-
-Industry (single word/phrase only):`,
-    ];
-
-    return promptVariations[Math.min(attemptNumber - 1, promptVariations.length - 1)];
+        return promptVariations[Math.min(attemptNumber - 1, promptVariations.length - 1)];
 }
 
 /**
  * Schema for industry identification (OpenAI function calling)
  */
 function getIndustrySchema() {
-    return {
-        type: 'object',
-        properties: {
-            industry: {
-                type: 'string',
-                description: 'The primary industry name (single word or short phrase, e.g., "Technology", "Healthcare")'
-            }
-        },
-        required: ['industry']
-    };
+        return {
+                type: 'object',
+                properties: {
+                        industries: {
+                                type: 'array',
+                                minItems: 3,
+                                maxItems: 3,
+                                items: {
+                                        type: 'string',
+                                        description: 'Industry name (single word or short phrase, best match first)'
+                                },
+                                description: 'Top 3 industries ordered best to worst'
+                        }
+                },
+                required: ['industries']
+        };
 }
 
 module.exports = {

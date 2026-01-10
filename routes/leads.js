@@ -2,9 +2,11 @@ const express = require('express');
 const router = express.Router();
 const leadsController = require('../controllers/leadsController');
 const { authenticateToken } = require('../middleware/auth');
+const { checkApprovalStatus } = require('../middleware/checkApprovalStatus');
 
-// All routes require authentication
+// All routes require authentication and approval
 router.use(authenticateToken);
+router.use(checkApprovalStatus);
 
 // Get all leads for user (not grouped)
 router.get('/all', leadsController.getAllLeads);

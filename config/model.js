@@ -47,6 +47,10 @@ var Users = sequelize.define('users', {
     role: { type: Sequelize.ENUM('user', 'admin'), defaultValue: 'user', allowNull: false },
     is_active: { type: Sequelize.BOOLEAN, defaultValue: true, allowNull: false },
     is_email_verified: { type: Sequelize.BOOLEAN, defaultValue: false },
+    approval_status: { type: Sequelize.ENUM('pending', 'approved', 'rejected'), defaultValue: 'pending', allowNull: false },
+    approved_by: { type: Sequelize.UUID, allowNull: true },
+    approved_at: { type: Sequelize.DATE, allowNull: true },
+    rejection_reason: { type: Sequelize.TEXT, allowNull: true },
     last_login_at: { type: Sequelize.DATE, allowNull: true },
     suspended_at: { type: Sequelize.DATE, allowNull: true },
     otp: { type: Sequelize.STRING },
@@ -369,6 +373,8 @@ Users.hasMany(Tickets, { foreignKey: 'user_id', onDelete: 'CASCADE' });
 Users.hasMany(TicketComments, { foreignKey: 'user_id', onDelete: 'SET NULL' });
 Users.hasMany(TicketAttachments, { foreignKey: 'user_id', onDelete: 'CASCADE' });
 Users.hasMany(Tickets, { foreignKey: 'assigned_to', as: 'assignedTickets' });
+// Self-referencing association for user approvals
+Users.belongsTo(Users, { foreignKey: 'approved_by', as: 'approvedByUser', allowNull: true });
 
 BusinessRequirements.belongsTo(Users, { foreignKey: 'user_id' });
 Campaigns.belongsTo(Users, { foreignKey: 'user_id' });

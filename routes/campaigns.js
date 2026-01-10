@@ -2,9 +2,11 @@ const express = require('express');
 const router = express.Router();
 const campaignController = require('../controllers/campaignController');
 const { authenticateToken } = require('../middleware/auth');
+const { checkApprovalStatus } = require('../middleware/checkApprovalStatus');
 
-// All routes require authentication
+// All routes require authentication and approval
 router.use(authenticateToken);
+router.use(checkApprovalStatus);
 
 // Campaign Routes
 router.get('/', campaignController.getCampaigns);

@@ -13,6 +13,7 @@ router.post('/reset-password', authController.resetPassword);
 
 // Protected routes
 router.get('/me', authenticateToken, authController.getCurrentUser);
+router.get('/approval-status', authenticateToken, authController.getApprovalStatus);
 router.put('/update-password', authenticateToken, authController.updatePassword);
 
 module.exports = router;

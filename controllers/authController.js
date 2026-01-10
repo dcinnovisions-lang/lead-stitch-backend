@@ -43,13 +43,15 @@ exports.register = async (req, res) => {
         );
 
         res.status(201).json({
-            message: 'User registered successfully',
+            message: 'User registered successfully. Waiting for admin approval.',
             token,
+            approvalStatus: user.approval_status,
             user: {
                 id: user.id,
                 email: user.email,
                 firstName: user.first_name,
                 lastName: user.last_name,
+                approvalStatus: user.approval_status,
             },
         });
     } catch (error) {
@@ -104,7 +106,7 @@ exports.login = async (req, res) => {
         // Find user using Sequelize
         const user = await Users.findOne({
             where: { email },
-            attributes: ['id', 'email', 'password_hash', 'first_name', 'last_name', 'role', 'is_active']
+            attributes: ['id', 'email', 'password_hash', 'first_name', 'last_name', 'role', 'is_active', 'approval_status', 'rejection_reason']
         });
 
         if (!user) {
@@ -131,8 +133,29 @@ exports.login = async (req, res) => {
             });
         }
 
+        // Check approval status (not for admins)
+        if (user.role !== 'admin') {
+            if (user.approval_status === 'pending') {
+                return res.status(403).json({
+                    message: 'PENDING_APPROVAL',
+                    error: 'Your account is pending admin approval. Please check back later.',
+                    approvalStatus: 'pending'
+                });
+            }
+
+            if (user.approval_status === 'rejected') {
+                return res.status(403).json({
+                    message: 'ACCOUNT_REJECTED',
+                    error: 'Your account has been rejected. Please contact support for more information.',
+                    approvalStatus: 'rejected',
+                    rejectionReason: user.rejection_reason
+                });
+            }
+        }
+
         // Check if user is admin - skip OTP for admin
         if (user.role === 'admin') {
+            console.log('✅ Admin login detected, skipping OTP for:', user.email);
             // Generate JWT token directly for admin
             if (!process.env.JWT_SECRET) {
                 throw new Error('JWT_SECRET is not configured in environment variables');
@@ -160,6 +183,8 @@ exports.login = async (req, res) => {
                 requiresOTP: false
             });
         }
+
+        console.log('📧 Non-admin login, attempting to send OTP to:', user.email);
 
         // For non-admin users, send OTP for 2FA
         // Generate OTP for 2FA
@@ -865,3 +890,40 @@ exports.verifyLoginOTP = async (req, res) => {
     }
 };
 
+// Get user approval status
+exports.getApprovalStatus = async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+
+        if (!userId) {
+            return res.status(401).json({
+                message: 'Authentication required',
+                code: 'NOT_AUTHENTICATED'
+            });
+        }
+
+        const user = await Users.findByPk(userId, {
+            attributes: ['id', 'email', 'approval_status', 'rejection_reason']
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                message: 'User not found',
+                code: 'USER_NOT_FOUND'
+            });
+        }
+
+        res.json({
+            success: true,
+            approvalStatus: user.approval_status,
+            rejectionReason: user.approval_status === 'rejected' ? user.rejection_reason : null
+        });
+
+    } catch (error) {
+        console.error('❌ Get approval status error:', error);
+        res.status(500).json({
+            message: 'Error checking approval status',
+            code: 'STATUS_CHECK_ERROR'
+        });
+    }
+};

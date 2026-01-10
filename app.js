@@ -4,7 +4,10 @@ const app = express();
 
 const allowedOrigins = [
     process.env.FRONTEND_URL || 'http://localhost:5173',
-    'http://127.0.0.1:5173'
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5174'
 ];
 
 app.use(cors({
@@ -37,6 +40,7 @@ app.use('/api/email', require('./routes/email'));
 app.use('/api/campaigns', require('./routes/campaigns'));
 app.use('/api/webhooks', require('./routes/webhooks')); // AWS SES webhooks
 app.use('/api/admin', require('./routes/admin')); // Admin routes
+app.use('/api/user-approval', require('./routes/userApproval')); // User approval routes
 app.use('/api/tickets', require('./routes/tickets')); // Ticket system routes
 app.use('/api/gemini-usage', require('./routes/geminiUsage')); // Gemini API usage tracking routes
 

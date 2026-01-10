@@ -950,7 +950,36 @@ exports.identifyIndustry = async (req, res) => {
             return res.status(400).json({ message: 'Requirement text must be at least 10 characters long' });
         }
 
+        const normalizeIndustries = (value) => {
+            if (!value) return [];
+            const list = Array.isArray(value) ? value : [value];
+            const cleaned = list
+                .map(item => (item ? String(item).trim() : ''))
+                .filter(Boolean)
+                .map(item => item
+                    .replace(/^```json|```$|^```|```$/g, '')
+                    .replace(/^\s*industries\s*[:=]\s*/i, '')
+                    .replace(/^\s*industry\s*[:=]\s*/i, '')
+                    .replace(/^['"]|['"]$/g, '')
+                    .split('\n')[0]
+                    .split('\r')[0]
+                    .replace(/[.,;:!?]+$/, '')
+                    .trim()
+                )
+                .filter(Boolean);
+
+            // Deduplicate while preserving order
+            const seen = new Set();
+            return cleaned.filter(item => {
+                const key = item.toLowerCase();
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            }).slice(0, 3);
+        };
+
         let identifiedIndustry = null;
+        let industryList = [];
         let apiSource = 'unknown';
         let modelUsed = 'unknown';
         const maxRetries = 3;
@@ -983,13 +1012,13 @@ exports.identifyIndustry = async (req, res) => {
                             functions: [
                                 {
                                     name: 'identify_industry',
-                                    description: 'Identify the primary industry for a business requirement',
+                                    description: 'Identify the top 3 industries for a business requirement',
                                     parameters: schema,
                                 },
                             ],
                             function_call: { name: 'identify_industry' },
                             temperature: 0.2,
-                            max_tokens: 50,
+                            max_tokens: 120,
                         },
                         {
                             headers: {
@@ -1005,13 +1034,14 @@ exports.identifyIndustry = async (req, res) => {
                     }
 
                     const parsedArgs = JSON.parse(functionCall.arguments);
-                    identifiedIndustry = parsedArgs.industry?.trim();
+                    industryList = normalizeIndustries(parsedArgs.industries || parsedArgs.industry);
+                    identifiedIndustry = industryList[0];
 
-                    if (!identifiedIndustry || identifiedIndustry.length === 0) {
+                    if (!identifiedIndustry || industryList.length === 0) {
                         throw new Error('Industry not found in OpenAI response');
                     }
 
-                    console.log('✅ OpenAI identified industry:', identifiedIndustry);
+                    console.log('✅ OpenAI identified industries:', industryList);
                     apiSource = 'openai';
                     modelUsed = 'gpt-4o-mini';
                     openaiSuccess = true;
@@ -1088,41 +1118,42 @@ exports.identifyIndustry = async (req, res) => {
                         // Try to parse as JSON first
                         try {
                             const parsed = extractJSONFromResponse(content);
-                            // Handle different response formats
-                            if (parsed && typeof parsed === 'object' && parsed.industry) {
-                                identifiedIndustry = String(parsed.industry).trim();
+                            if (parsed && typeof parsed === 'object' && Array.isArray(parsed.industries)) {
+                                industryList = normalizeIndustries(parsed.industries);
+                            } else if (parsed && typeof parsed === 'object' && parsed.industry) {
+                                industryList = normalizeIndustries(parsed.industry);
+                            } else if (Array.isArray(parsed)) {
+                                industryList = normalizeIndustries(parsed);
                             } else if (parsed && typeof parsed === 'string') {
-                                identifiedIndustry = parsed.trim();
+                                industryList = normalizeIndustries(parsed);
                             } else {
-                                // If parsed is not the format we expect, treat content as plain text
-                                identifiedIndustry = content.trim();
+                                industryList = normalizeIndustries(content);
                             }
                         } catch (jsonError) {
                             // If not JSON, treat as plain text
-                            identifiedIndustry = content.trim();
+                            industryList = normalizeIndustries(content);
                         }
 
-                        // Clean up the industry name
-                        if (identifiedIndustry) {
-                            // Convert to string if not already
-                            identifiedIndustry = String(identifiedIndustry);
-                            // Remove any markdown formatting
-                            identifiedIndustry = identifiedIndustry.replace(/^```json|```$|^```|```$/g, '').trim();
-                            // Remove quotes if present
-                            identifiedIndustry = identifiedIndustry.replace(/^["']|["']$/g, '').trim();
-                            // Remove common prefixes/suffixes
-                            identifiedIndustry = identifiedIndustry.replace(/^(Industry:\s*|industry:\s*)/i, '').trim();
-                            // Take only the first line (in case of multi-line response)
-                            identifiedIndustry = identifiedIndustry.split('\n')[0].split('\r')[0].trim();
-                            // Remove trailing punctuation that might have been included
-                            identifiedIndustry = identifiedIndustry.replace(/[.,;:!?]+$/, '').trim();
+                        // Fallbacks: if we parsed an array but normalization stripped everything, keep originals
+                        if (industryList.length === 0) {
+                            try {
+                                const parsed = extractJSONFromResponse(content);
+                                if (Array.isArray(parsed)) {
+                                    industryList = parsed.map(item => String(item).trim()).filter(Boolean).slice(0, 3);
+                                } else if (parsed && typeof parsed === 'object' && Array.isArray(parsed.industries)) {
+                                    industryList = parsed.industries.map(item => String(item).trim()).filter(Boolean).slice(0, 3);
+                                }
+                            } catch (fallbackParseError) {
+                                // ignore, keep best-effort
+                            }
                         }
 
-                        if (!identifiedIndustry || identifiedIndustry.length === 0) {
+                        identifiedIndustry = industryList[0];
+
+                        if (!identifiedIndustry || industryList.length === 0) {
                             throw new Error('Industry not found in Gemini response');
                         }
-
-                        console.log('✅ Gemini identified industry:', identifiedIndustry);
+                        console.log('✅ Gemini identified industries:', industryList);
                         apiSource = 'gemini';
                         modelUsed = model;
                         geminiSuccess = true;
@@ -1147,8 +1178,24 @@ exports.identifyIndustry = async (req, res) => {
             throw new Error('Failed to identify industry from requirement text');
         }
 
+        // Ensure we always return three options if possible
+        if (industryList.length === 0 && identifiedIndustry) {
+            industryList = [identifiedIndustry];
+        }
+
+        while (industryList.length < 3 && industryList.length > 0) {
+            industryList.push(industryList[industryList.length - 1]);
+        }
+
+        // Final safety: if still empty, surface the raw content that failed
+        if (industryList.length === 0) {
+            throw new Error('Industry not found in Gemini response');
+        }
+
         return res.json({
             industry: identifiedIndustry,
+            primaryIndustry: identifiedIndustry,
+            industries: industryList,
             apiSource: apiSource,
             model: modelUsed,
             message: 'Industry identified successfully',
