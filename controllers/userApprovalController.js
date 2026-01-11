@@ -181,10 +181,12 @@ exports.rejectUser = async (req, res) => {
 
     try {
         const { userId } = req.params;
-        const { reason } = req.body;
+        // Accept both 'reason' and 'rejection_reason' for maximum compatibility
+        const { reason, rejection_reason } = req.body;
+        const finalReason = reason || rejection_reason;
         const adminId = req.user.userId;
 
-        if (!reason || reason.trim().length === 0) {
+        if (!finalReason || finalReason.trim().length === 0) {
             await transaction.rollback();
             return res.status(400).json({
                 success: false,
@@ -218,7 +220,7 @@ exports.rejectUser = async (req, res) => {
             {
                 approval_status: 'rejected',
                 approved_by: adminId,
-                rejection_reason: reason,
+                rejection_reason: finalReason,
                 approved_at: new Date() // Keep timestamp for audit trail
             },
             { transaction }
@@ -232,7 +234,7 @@ exports.rejectUser = async (req, res) => {
             ? `re-rejected with updated reason`
             : `rejected`;
 
-        console.log(`❌ User ${user.email} ${actionMessage} by admin ${adminId}. Reason: ${reason}`);
+        console.log(`❌ User ${user.email} ${actionMessage} by admin ${adminId}. Reason: ${finalReason}`);
 
         res.json({
             success: true,
