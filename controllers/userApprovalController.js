@@ -309,6 +309,12 @@ exports.bulkApproveUsers = async (req, res) => {
 
 // Get approval statistics
 exports.getApprovalStats = async (req, res) => {
+    let statObj = {
+        pending: 0,
+        approved: 0,
+        rejected: 0,
+        total: 0
+    };
     try {
         const stats = await Users.findAll({
             attributes: [
@@ -318,30 +324,23 @@ exports.getApprovalStats = async (req, res) => {
             group: ['approval_status'],
             raw: true
         });
-
-        const statObj = {
-            pending: 0,
-            approved: 0,
-            rejected: 0,
-            total: 0
-        };
-
         stats.forEach(stat => {
             const count = parseInt(stat.count);
             statObj[stat.approval_status] = count;
             statObj.total += count;
         });
-
+        console.log('✅ Returning approval stats:', statObj);
         res.json({
             success: true,
             data: statObj
         });
-
     } catch (error) {
         console.error('❌ Get approval stats error:', error);
-        res.status(500).json({
+        // Always return a valid stats object, even on error
+        res.status(200).json({
             success: false,
-            message: 'Failed to fetch approval statistics'
+            message: 'Failed to fetch approval statistics',
+            data: statObj
         });
     }
 };
