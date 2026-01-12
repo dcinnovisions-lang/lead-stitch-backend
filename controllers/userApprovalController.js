@@ -316,6 +316,7 @@ exports.getApprovalStats = async (req, res) => {
         total: 0
     };
     try {
+        console.log('[getApprovalStats] Called');
         const stats = await Users.findAll({
             attributes: [
                 'approval_status',
@@ -324,18 +325,19 @@ exports.getApprovalStats = async (req, res) => {
             group: ['approval_status'],
             raw: true
         });
+        console.log('[getApprovalStats] Raw stats from DB:', stats);
         stats.forEach(stat => {
             const count = parseInt(stat.count);
             statObj[stat.approval_status] = count;
             statObj.total += count;
         });
-        console.log('✅ Returning approval stats:', statObj);
+        console.log('[getApprovalStats] Returning approval stats:', statObj);
         res.json({
             success: true,
             data: statObj
         });
     } catch (error) {
-        console.error('❌ Get approval stats error:', error);
+        console.error('❌ [getApprovalStats] Error:', error);
         // Always return a valid stats object, even on error
         res.status(200).json({
             success: false,

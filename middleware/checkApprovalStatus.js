@@ -79,30 +79,67 @@ exports.checkApprovalStatus = async (req, res, next) => {
  */
 exports.checkApprovalStatusAdmin = async (req, res, next) => {
     try {
+        console.log('[checkApprovalStatusAdmin] Called');
         const userId = req.user?.userId;
-
         if (!userId) {
+            console.warn('[checkApprovalStatusAdmin] No userId in token');
+            // If this is the stats endpoint, always return a valid stats object
+            if (req.originalUrl && req.originalUrl.includes('/user-approval/stats')) {
+                return res.status(401).json({
+                    message: 'Authentication required',
+                    code: 'NOT_AUTHENTICATED',
+                    data: { pending: 0, approved: 0, rejected: 0, total: 0 }
+                });
+            }
             return res.status(401).json({ 
                 message: 'Authentication required',
                 code: 'NOT_AUTHENTICATED'
             });
         }
-
+        console.log('[checkApprovalStatusAdmin] userId:', userId);
         const user = await Users.findByPk(userId, {
             attributes: ['id', 'role']
         });
-
-        if (!user || user.role !== 'admin') {
+        if (!user) {
+            console.warn('[checkApprovalStatusAdmin] User not found:', userId);
+            if (req.originalUrl && req.originalUrl.includes('/user-approval/stats')) {
+                return res.status(403).json({
+                    message: 'Admin access required',
+                    code: 'ADMIN_ONLY',
+                    data: { pending: 0, approved: 0, rejected: 0, total: 0 }
+                });
+            }
             return res.status(403).json({
                 message: 'Admin access required',
                 code: 'ADMIN_ONLY'
             });
         }
-
+        console.log('[checkApprovalStatusAdmin] user.role:', user.role);
+        if (user.role !== 'admin') {
+            console.warn('[checkApprovalStatusAdmin] User is not admin:', userId);
+            if (req.originalUrl && req.originalUrl.includes('/user-approval/stats')) {
+                return res.status(403).json({
+                    message: 'Admin access required',
+                    code: 'ADMIN_ONLY',
+                    data: { pending: 0, approved: 0, rejected: 0, total: 0 }
+                });
+            }
+            return res.status(403).json({
+                message: 'Admin access required',
+                code: 'ADMIN_ONLY'
+            });
+        }
+        console.log('[checkApprovalStatusAdmin] User is admin, proceeding');
         next();
-
     } catch (error) {
         console.error('❌ Admin check error:', error);
+        if (req.originalUrl && req.originalUrl.includes('/user-approval/stats')) {
+            return res.status(500).json({
+                message: 'Error checking admin status',
+                code: 'ADMIN_CHECK_ERROR',
+                data: { pending: 0, approved: 0, rejected: 0, total: 0 }
+            });
+        }
         res.status(500).json({
             message: 'Error checking admin status',
             code: 'ADMIN_CHECK_ERROR'
