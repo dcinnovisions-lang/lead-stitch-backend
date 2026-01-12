@@ -316,7 +316,10 @@ exports.getApprovalStats = async (req, res) => {
         total: 0
     };
     try {
+        console.log('==============================');
         console.log('[getApprovalStats] Called');
+        console.log('[getApprovalStats] Request headers:', req.headers);
+        console.log('[getApprovalStats] Request user:', req.user);
         const stats = await Users.findAll({
             attributes: [
                 'approval_status',
@@ -328,14 +331,18 @@ exports.getApprovalStats = async (req, res) => {
         console.log('[getApprovalStats] Raw stats from DB:', stats);
         stats.forEach(stat => {
             const count = parseInt(stat.count);
+            console.log(`[getApprovalStats] Stat for ${stat.approval_status}:`, count);
             statObj[stat.approval_status] = count;
             statObj.total += count;
         });
+        console.log('[getApprovalStats] Final statObj:', statObj);
         console.log('[getApprovalStats] Returning approval stats:', statObj);
         res.json({
             success: true,
             data: statObj
         });
+        console.log('[getApprovalStats] Response sent');
+        console.log('==============================');
     } catch (error) {
         console.error('❌ [getApprovalStats] Error:', error);
         // Always return a valid stats object, even on error
@@ -344,5 +351,7 @@ exports.getApprovalStats = async (req, res) => {
             message: 'Failed to fetch approval statistics',
             data: statObj
         });
+        console.log('[getApprovalStats] Error response sent:', statObj);
+        console.log('==============================');
     }
 };
