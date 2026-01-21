@@ -6,12 +6,21 @@ const { encrypt } = require('../utils/encryption');
 // Microsoft OAuth configuration
 const OUTLOOK_CLIENT_ID = process.env.OUTLOOK_CLIENT_ID;
 const OUTLOOK_CLIENT_SECRET = process.env.OUTLOOK_CLIENT_SECRET;
-const OUTLOOK_REDIRECT_URI = process.env.OUTLOOK_REDIRECT_URI || 'http://localhost:5000/api/email/outlook/oauth/callback';
+const OUTLOOK_REDIRECT_URI = process.env.OUTLOOK_REDIRECT_URI;
 // Use Microsoft Graph API scopes (not Outlook-specific scopes)
 // Microsoft Graph API supports short format scopes
 const OUTLOOK_SCOPES = 'Mail.Send Mail.ReadWrite User.Read offline_access';
 const MICROSOFT_AUTHORITY = 'https://login.microsoftonline.com/common';
 const MICROSOFT_TOKEN_ENDPOINT = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+
+/**
+ * Helper function to construct frontend URL without double slashes
+ */
+function getFrontendUrl(path = '') {
+    const baseUrl = (process.env.FRONTEND_URL).replace(/\/+$/, ''); // Remove trailing slashes
+    const cleanPath = path.startsWith('/') ? path : `/${path}`; // Ensure path starts with /
+    return `${baseUrl}${cleanPath}`;
+}
 
 /**
  * Generate OAuth authorization URL for Outlook
@@ -66,11 +75,11 @@ exports.handleOutlookCallback = async (req, res) => {
         if (error) {
             const errorMsg = error_description || error || 'Unknown error';
             console.error('Outlook OAuth error:', errorMsg);
-            return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations?outlook_error=${encodeURIComponent(errorMsg)}`);
+            return res.redirect(getFrontendUrl(`integrations?outlook_error=${encodeURIComponent(errorMsg)}`));
         }
 
         if (!code) {
-            return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations?outlook_error=no_code`);
+            return res.redirect(getFrontendUrl('integrations?outlook_error=no_code'));
         }
 
         // Decode state to get userId
@@ -80,7 +89,7 @@ exports.handleOutlookCallback = async (req, res) => {
             userId = stateData.userId;
         } catch (e) {
             console.error('Invalid state parameter:', e);
-            return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations?outlook_error=invalid_state`);
+            return res.redirect(getFrontendUrl('integrations?outlook_error=invalid_state'));
         }
 
         // Exchange authorization code for access token
@@ -114,7 +123,7 @@ exports.handleOutlookCallback = async (req, res) => {
         const email = mail || userPrincipalName;
 
         if (!email) {
-            return res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations?outlook_error=no_email`);
+            return res.redirect(getFrontendUrl('integrations?outlook_error=no_email'));
         }
 
         // Prepare OAuth token data
@@ -175,11 +184,11 @@ exports.handleOutlookCallback = async (req, res) => {
         }
 
         // Redirect to frontend with success
-        res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations?outlook_connected=true&email=${encodeURIComponent(email)}`);
+        res.redirect(getFrontendUrl(`integrations?outlook_connected=true&email=${encodeURIComponent(email)}`));
     } catch (error) {
         console.error('Error handling Outlook callback:', error.response?.data || error.message);
         const errorMessage = error.response?.data?.error_description || error.message || 'Unknown error';
-        res.redirect(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/integrations?outlook_error=${encodeURIComponent(errorMessage)}`);
+        res.redirect(getFrontendUrl(`integrations?outlook_error=${encodeURIComponent(errorMessage)}`));
     }
 };
 
