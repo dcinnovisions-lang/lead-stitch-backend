@@ -11,6 +11,7 @@ const allowedOrigins = [
     'https://leadstitch.nl',
     'https://www.leadstitch.nl',
     'https://bk.leadstitch.nl'
+    'http://127.0.0.1:5173', 'https://leadstitch.nl'
 ];
 
 app.use(cors({
