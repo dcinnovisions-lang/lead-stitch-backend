@@ -7,11 +7,11 @@ const { encrypt } = require('../utils/encryption');
 const OUTLOOK_CLIENT_ID = process.env.OUTLOOK_CLIENT_ID;
 const OUTLOOK_CLIENT_SECRET = process.env.OUTLOOK_CLIENT_SECRET;
 const OUTLOOK_REDIRECT_URI = process.env.OUTLOOK_REDIRECT_URI;
-// Use Microsoft Graph API scopes (not Outlook-specific scopes)
+
 // Microsoft Graph API supports short format scopes
-const OUTLOOK_SCOPES = 'Mail.Send Mail.ReadWrite User.Read offline_access';
-const MICROSOFT_AUTHORITY = 'https://login.microsoftonline.com/common';
-const MICROSOFT_TOKEN_ENDPOINT = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+const OUTLOOK_SCOPES = process.env.OUTLOOK_OAUTH_SCOPES || 'Mail.Send Mail.ReadWrite User.Read offline_access';
+const MICROSOFT_AUTHORITY = process.env.OUTLOOK_OAUTH_AUTHORITY || 'https://login.microsoftonline.com/common';
+const MICROSOFT_TOKEN_ENDPOINT = process.env.OUTLOOK_OAUTH_TOKEN_ENDPOINT || 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
 
 /**
  * Helper function to construct frontend URL without double slashes
@@ -113,7 +113,8 @@ exports.handleOutlookCallback = async (req, res) => {
         const { access_token, refresh_token, expires_in, token_type } = tokenResponse.data;
 
         // Get user profile information to get email
-        const profileResponse = await axios.get('https://graph.microsoft.com/v1.0/me', {
+        const GRAPH_API_ME = process.env.OUTLOOK_GRAPH_API_ME || 'https://graph.microsoft.com/v1.0/me';
+        const profileResponse = await axios.get(GRAPH_API_ME, {
             headers: {
                 'Authorization': `Bearer ${access_token}`,
             },

@@ -136,11 +136,11 @@ class EmailService {
         }
 
         // Check if OAuth tokens are available (for Outlook OAuth)
-        const hasOAuth = creds.oauth_access_token_encrypted && 
-                        (creds.provider === 'outlook' || 
-                         creds.email.includes('@outlook.com') || 
-                         creds.email.includes('@hotmail.com') || 
-                         creds.email.includes('@live.com'));
+        const hasOAuth = creds.oauth_access_token_encrypted &&
+            (creds.provider === 'outlook' ||
+                creds.email.includes('@outlook.com') ||
+                creds.email.includes('@hotmail.com') ||
+                creds.email.includes('@live.com'));
 
         if (hasOAuth) {
             // Use OAuth-based transporter (Microsoft Graph API)
@@ -254,15 +254,6 @@ class EmailService {
                 if (creds.provider === 'gmail' || creds.email.includes('@gmail.com')) {
                     errorMsg = 'Gmail authentication failed. Common issues:';
                     helpfulHint = '1) Make sure you removed ALL SPACES from your App Password (Gmail shows it with spaces like "abcd efgh ijkl mnop" but you must enter it without spaces like "abcdefghijklmnop"). 2) Ensure you\'re using the 16-character App Password (not your regular password). 3) Verify 2FA is enabled and you generated the App Password correctly. 4) Make sure your username is your full email address.';
-                } else if (creds.provider === 'outlook' || creds.email.includes('@outlook.com') || creds.email.includes('@hotmail.com')) {
-                    // Check if error mentions basic authentication is disabled
-                    if (error.message.includes('basic authentication is disabled') || error.message.includes('Authentication unsuccessful')) {
-                        errorMsg = 'Outlook SMTP authentication is not supported for this account.';
-                        helpfulHint = `Microsoft has disabled basic authentication (including App Passwords) for SMTP on many Outlook/Hotmail accounts. This is a Microsoft account limitation, not an issue with your credentials. Your account (${creds.email}) requires OAuth 2.0 authentication, which is not yet supported in this application. RECOMMENDED SOLUTIONS: 1) Use Gmail instead (Gmail App Passwords work reliably), 2) Use a business email with custom SMTP (Office 365 Business, Zoho, etc.), 3) Use a different email service provider. We're working on adding OAuth 2.0 support for Outlook in a future update.`;
-                    } else {
-                        errorMsg = 'Outlook authentication failed. Outlook requires an App Password, but App Passwords are only available if 2FA is enabled.';
-                        helpfulHint = 'To fix: 1) Enable 2FA first at https://account.microsoft.com/security > Advanced security options, 2) After 2FA is enabled, "App passwords" option will appear, 3) Create an App Password, 4) Use that App Password here. If App Passwords are not available for your account, consider using Gmail or a custom SMTP server.';
-                    }
                 } else {
                     errorMsg = 'Authentication failed. Please check your username and password.';
                     helpfulHint = 'Make sure you are using the correct credentials. Some providers require App Passwords if 2FA is enabled.';
@@ -317,7 +308,8 @@ class EmailService {
             verify: async () => {
                 // Verify by checking token validity with a simple Graph API call
                 try {
-                    await axios.get('https://graph.microsoft.com/v1.0/me', {
+                    const GRAPH_API_ME = process.env.OUTLOOK_GRAPH_API_ME || 'https://graph.microsoft.com/v1.0/me';
+                    await axios.get(GRAPH_API_ME, {
                         headers: {
                             'Authorization': `Bearer ${accessToken}`
                         }
@@ -344,8 +336,9 @@ class EmailService {
         const OUTLOOK_CLIENT_SECRET = process.env.OUTLOOK_CLIENT_SECRET;
         // Use Microsoft Graph API scopes (not Outlook-specific scopes)
         // Microsoft Graph API supports short format scopes
-        const OUTLOOK_SCOPES = 'Mail.Send Mail.ReadWrite User.Read offline_access';
-        const MICROSOFT_TOKEN_ENDPOINT = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+
+        const OUTLOOK_SCOPES = process.env.OUTLOOK_OAUTH_SCOPES || 'Mail.Send Mail.ReadWrite User.Read offline_access';
+        const MICROSOFT_TOKEN_ENDPOINT = process.env.OUTLOOK_OAUTH_TOKEN_ENDPOINT || 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
 
         try {
             const tokenResponse = await axios.post(
@@ -410,8 +403,9 @@ class EmailService {
         }
 
         try {
+            const GRAPH_API_SEND_MAIL = process.env.OUTLOOK_GRAPH_API_SEND_MAIL || 'https://graph.microsoft.com/v1.0/me/sendMail';
             const response = await axios.post(
-                'https://graph.microsoft.com/v1.0/me/sendMail',
+                GRAPH_API_SEND_MAIL,
                 message,
                 {
                     headers: {
@@ -438,9 +432,9 @@ class EmailService {
      */
     parseEmailAddresses(addresses) {
         if (!addresses) return [];
-        
+
         const addressList = Array.isArray(addresses) ? addresses : addresses.split(',').map(a => a.trim());
-        
+
         return addressList.map(addr => {
             // Handle "Name <email@domain.com>" format
             const match = addr.match(/^(.+?)\s*<(.+?)>$/);
@@ -1622,13 +1616,13 @@ class EmailService {
     async testSMTPConnection(smtpCredentialId) {
         try {
             const transporter = await this.getTransporter(smtpCredentialId);
-            
+
             // For OAuth transporters, use the verify method
             if (transporter.type === 'oauth') {
                 await transporter.verify();
                 return { success: true, message: 'OAuth connection verified successfully' };
             }
-            
+
             // For regular SMTP
             await transporter.verify();
             return { success: true, message: 'SMTP connection successful' };

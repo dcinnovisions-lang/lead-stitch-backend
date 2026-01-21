@@ -14,13 +14,25 @@ exports.getSMTPCredentials = async (req, res) => {
 
         const credentials = await EmailSMTPCredentials.findAll({
             where: { user_id: userId },
-            attributes: ['id', 'provider', 'email', 'smtp_host', 'smtp_port', 'smtp_secure', 'display_name', 'is_active', 'is_verified', 'last_used_at', 'created_at'],
+            attributes: ['id', 'provider', 'email', 'smtp_host', 'smtp_port', 'smtp_secure', 'display_name', 'is_active', 'is_verified', 'last_used_at', 'created_at', 'username'],
             order: [['created_at', 'DESC']]
         });
 
+        // Add has_oauth flag to each credential (check if OAuth token exists without exposing it)
+        const credentialsWithOAuth = await Promise.all(credentials.map(async (cred) => {
+            const credData = cred.toJSON();
+            // Check if OAuth token exists by querying the raw data
+            const fullCred = await EmailSMTPCredentials.findOne({
+                where: { id: cred.id },
+                attributes: ['oauth_access_token_encrypted']
+            });
+            credData.has_oauth = !!fullCred?.oauth_access_token_encrypted;
+            return credData;
+        }));
+
         res.json({
             success: true,
-            credentials: credentials,
+            credentials: credentialsWithOAuth,
         });
     } catch (error) {
         console.error('Get SMTP credentials error:', error);
@@ -80,7 +92,7 @@ exports.createSMTPCredentials = async (req, res) => {
         // Validation
         // Password is optional for OAuth-based providers (like Outlook OAuth)
         const isOAuthProvider = provider === 'outlook' && req.body.use_oauth === true;
-        
+
         if (!provider || !email || !smtp_host || !smtp_port || !username) {
             return res.status(400).json({
                 success: false,
@@ -112,16 +124,9 @@ exports.createSMTPCredentials = async (req, res) => {
             }
         }
 
-        // Outlook App Passwords might also have spaces - remove them
-        if (provider === 'outlook' || email.includes('@outlook.com') || email.includes('@hotmail.com') || email.includes('@live.com')) {
+        // Outlook passwords might have spaces - remove them (for non-OAuth cases)
+        if ((provider === 'outlook' || email.includes('@outlook.com') || email.includes('@hotmail.com') || email.includes('@live.com')) && !isOAuthProvider) {
             cleanedPassword = cleanedPassword.replace(/\s+/g, '');
-            // Outlook App Passwords are typically 16 characters, but can vary
-            if (cleanedPassword.length < 8) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Outlook App Password seems too short. Please check that you copied the complete App Password.',
-                });
-            }
         }
 
         // Ensure username is the full email address for Gmail and Outlook
@@ -553,7 +558,7 @@ exports.getSMTPProviders = async (req, res) => {
                 smtp_host: 'smtp-mail.outlook.com',
                 smtp_port: 587,
                 smtp_secure: false,
-                instructions: 'Use your Outlook email and password. May require App Password if 2FA is enabled.',
+                instructions: 'Use OAuth 2.0 authentication for secure and reliable Outlook integration.',
             },
             {
                 name: 'Yahoo',
