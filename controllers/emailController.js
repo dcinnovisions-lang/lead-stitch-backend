@@ -78,10 +78,21 @@ exports.createSMTPCredentials = async (req, res) => {
         } = req.body;
 
         // Validation
-        if (!provider || !email || !smtp_host || !smtp_port || !username || !password) {
+        // Password is optional for OAuth-based providers (like Outlook OAuth)
+        const isOAuthProvider = provider === 'outlook' && req.body.use_oauth === true;
+        
+        if (!provider || !email || !smtp_host || !smtp_port || !username) {
             return res.status(400).json({
                 success: false,
-                message: 'Missing required fields: provider, email, smtp_host, smtp_port, username, password',
+                message: 'Missing required fields: provider, email, smtp_host, smtp_port, username',
+            });
+        }
+
+        // Password is required unless using OAuth
+        if (!isOAuthProvider && !password) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password is required (or use OAuth for Outlook)',
             });
         }
 
@@ -124,7 +135,8 @@ exports.createSMTPCredentials = async (req, res) => {
         }
 
         // Encrypt password using AES-256 (reversible encryption for SMTP)
-        const passwordEncrypted = encrypt(cleanedPassword);
+        // Only if password is provided (not for OAuth)
+        const passwordEncrypted = password ? encrypt(cleanedPassword) : null;
 
         // Insert SMTP credentials
         const credential = await EmailSMTPCredentials.create({

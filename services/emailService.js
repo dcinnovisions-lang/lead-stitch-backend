@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 const handlebars = require('handlebars');
 const crypto = require('crypto');
+const axios = require('axios');
 const { decrypt } = require('../utils/encryption');
 const {
     EmailSMTPCredentials,
@@ -134,9 +135,26 @@ class EmailService {
             throw new Error('SMTP credentials not found or inactive');
         }
 
+        // Check if OAuth tokens are available (for Outlook OAuth)
+        const hasOAuth = creds.oauth_access_token_encrypted && 
+                        (creds.provider === 'outlook' || 
+                         creds.email.includes('@outlook.com') || 
+                         creds.email.includes('@hotmail.com') || 
+                         creds.email.includes('@live.com'));
+
+        if (hasOAuth) {
+            // Use OAuth-based transporter (Microsoft Graph API)
+            return await this.getOAuthTransporter(creds);
+        }
+
+        // Fall back to password-based authentication
         // Decrypt password for SMTP authentication
         let password;
         const encryptedPassword = creds.password_encrypted;
+
+        if (!encryptedPassword) {
+            throw new Error('No authentication method available. Please configure either OAuth or App Password.');
+        }
 
         // Check if it's bcrypt hash (old format) - bcrypt hashes start with $2a$, $2b$, or $2y$
         if (encryptedPassword && (encryptedPassword.startsWith('$2a$') || encryptedPassword.startsWith('$2b$') || encryptedPassword.startsWith('$2y$'))) {
@@ -267,6 +285,180 @@ class EmailService {
         );
 
         return transporter;
+    }
+
+    /**
+     * Get OAuth-based transporter for Outlook (uses Microsoft Graph API)
+     */
+    async getOAuthTransporter(creds) {
+        // Check if token is expired and refresh if needed
+        let accessToken = decrypt(creds.oauth_access_token_encrypted);
+        const expiresAt = creds.oauth_expires_at ? new Date(creds.oauth_expires_at) : null;
+
+        // Refresh token if expired or about to expire (within 5 minutes)
+        if (expiresAt && (expiresAt.getTime() - Date.now() < 5 * 60 * 1000)) {
+            try {
+                accessToken = await this.refreshOutlookToken(creds);
+            } catch (error) {
+                console.error('Failed to refresh Outlook token:', error);
+                throw new Error('Outlook OAuth token expired and refresh failed. Please reconnect your Outlook account.');
+            }
+        }
+
+        // Return a special transporter object that uses Microsoft Graph API
+        return {
+            type: 'oauth',
+            accessToken: accessToken,
+            email: creds.email,
+            displayName: creds.display_name,
+            sendMail: async (mailOptions) => {
+                return await this.sendViaMicrosoftGraph(accessToken, mailOptions);
+            },
+            verify: async () => {
+                // Verify by checking token validity with a simple Graph API call
+                try {
+                    await axios.get('https://graph.microsoft.com/v1.0/me', {
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`
+                        }
+                    });
+                    return true;
+                } catch (error) {
+                    throw new Error('OAuth token is invalid. Please reconnect your Outlook account.');
+                }
+            }
+        };
+    }
+
+    /**
+     * Refresh Outlook OAuth token
+     */
+    async refreshOutlookToken(creds) {
+        if (!creds.oauth_refresh_token_encrypted) {
+            throw new Error('No refresh token available');
+        }
+
+        const refreshToken = decrypt(creds.oauth_refresh_token_encrypted);
+
+        const OUTLOOK_CLIENT_ID = process.env.OUTLOOK_CLIENT_ID;
+        const OUTLOOK_CLIENT_SECRET = process.env.OUTLOOK_CLIENT_SECRET;
+        // Use Microsoft Graph API scopes (not Outlook-specific scopes)
+        // Microsoft Graph API supports short format scopes
+        const OUTLOOK_SCOPES = 'Mail.Send Mail.ReadWrite User.Read offline_access';
+        const MICROSOFT_TOKEN_ENDPOINT = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+
+        try {
+            const tokenResponse = await axios.post(
+                MICROSOFT_TOKEN_ENDPOINT,
+                new URLSearchParams({
+                    client_id: OUTLOOK_CLIENT_ID,
+                    client_secret: OUTLOOK_CLIENT_SECRET,
+                    refresh_token: refreshToken,
+                    grant_type: 'refresh_token',
+                    scope: OUTLOOK_SCOPES
+                }),
+                {
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                }
+            );
+
+            const { access_token, refresh_token: new_refresh_token, expires_in } = tokenResponse.data;
+
+            // Update credentials with new tokens
+            const { encrypt } = require('../utils/encryption');
+            const encryptedAccessToken = encrypt(access_token);
+            const encryptedRefreshToken = new_refresh_token ? encrypt(new_refresh_token) : creds.oauth_refresh_token_encrypted;
+
+            await creds.update({
+                oauth_access_token_encrypted: encryptedAccessToken,
+                oauth_refresh_token_encrypted: encryptedRefreshToken,
+                oauth_expires_at: new Date(Date.now() + expires_in * 1000).toISOString(),
+                updated_at: new Date()
+            });
+
+            return access_token;
+        } catch (error) {
+            console.error('Error refreshing Outlook token:', error.response?.data || error.message);
+            throw new Error('Failed to refresh Outlook OAuth token. Please reconnect your account.');
+        }
+    }
+
+    /**
+     * Send email via Microsoft Graph API (for OAuth-based Outlook)
+     */
+    async sendViaMicrosoftGraph(accessToken, mailOptions) {
+        // Convert nodemailer mailOptions to Microsoft Graph API format
+        const message = {
+            message: {
+                subject: mailOptions.subject,
+                body: {
+                    contentType: 'HTML',
+                    content: mailOptions.html || mailOptions.text
+                },
+                toRecipients: this.parseEmailAddresses(mailOptions.to),
+                ccRecipients: mailOptions.cc ? this.parseEmailAddresses(mailOptions.cc) : [],
+                bccRecipients: mailOptions.bcc ? this.parseEmailAddresses(mailOptions.bcc) : [],
+            },
+            saveToSentItems: true
+        };
+
+        // Add reply-to if specified
+        if (mailOptions.replyTo) {
+            message.message.replyTo = this.parseEmailAddresses(mailOptions.replyTo);
+        }
+
+        try {
+            const response = await axios.post(
+                'https://graph.microsoft.com/v1.0/me/sendMail',
+                message,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            return {
+                messageId: response.headers['x-request-id'] || `graph-${Date.now()}`,
+                response: 'Email sent via Microsoft Graph API',
+                accepted: [mailOptions.to].flat(),
+                rejected: []
+            };
+        } catch (error) {
+            console.error('Microsoft Graph API error:', error.response?.data || error.message);
+            throw new Error(`Failed to send email via Microsoft Graph: ${error.response?.data?.error?.message || error.message}`);
+        }
+    }
+
+    /**
+     * Parse email addresses from various formats to Microsoft Graph format
+     */
+    parseEmailAddresses(addresses) {
+        if (!addresses) return [];
+        
+        const addressList = Array.isArray(addresses) ? addresses : addresses.split(',').map(a => a.trim());
+        
+        return addressList.map(addr => {
+            // Handle "Name <email@domain.com>" format
+            const match = addr.match(/^(.+?)\s*<(.+?)>$/);
+            if (match) {
+                return {
+                    emailAddress: {
+                        name: match[1].trim(),
+                        address: match[2].trim()
+                    }
+                };
+            }
+            // Handle plain email
+            return {
+                emailAddress: {
+                    address: addr.trim()
+                }
+            };
+        });
     }
 
     /**
@@ -441,6 +633,123 @@ class EmailService {
     }
 
     /**
+     * Send email via OAuth (Microsoft Graph API)
+     */
+    async sendEmailViaOAuth(transporter, {
+        smtpCredentialId,
+        to,
+        subject,
+        html,
+        text,
+        fromName,
+        fromEmail,
+        replyTo,
+        cc = [],
+        bcc = [],
+        attachments = [],
+        recipientId = null,
+        campaignId = null,
+        personalization = {},
+    }) {
+        try {
+            // Get SMTP credentials for from email
+            const creds = await EmailSMTPCredentials.findByPk(smtpCredentialId, {
+                attributes: ['email', 'display_name']
+            });
+
+            // Prepare email content
+            let finalHtml = html || '';
+            let finalText = text || '';
+
+            // Personalize content if variables provided
+            if (Object.keys(personalization).length > 0) {
+                finalHtml = this.compileTemplate(finalHtml, personalization);
+                if (finalText) {
+                    finalText = this.compileTemplate(finalText, personalization);
+                }
+            }
+
+            // Add tracking pixel if recipientId provided
+            if (recipientId && finalHtml) {
+                finalHtml = await this.addTrackingPixel(finalHtml, recipientId, campaignId);
+            }
+
+            // Rewrite links for click tracking if recipientId provided
+            if (recipientId && finalHtml) {
+                finalHtml = await this.rewriteLinksForTracking(finalHtml, recipientId, campaignId);
+            }
+
+            // Prepare unsubscribe URL
+            const baseUrl = this.getBaseUrl();
+            const unsubscribeUrl = recipientId
+                ? `${baseUrl}/api/email/unsubscribe?recipientId=${recipientId}`
+                : `${baseUrl}/api/email/unsubscribe?email=${encodeURIComponent(to)}`;
+
+            // Ensure we have a plain text version
+            const plainText = finalText || this.stripHtml(finalHtml);
+
+            // Prepare mail options for Microsoft Graph API
+            const mailOptions = {
+                from: fromName
+                    ? `"${fromName}" <${creds.email}>`
+                    : creds.display_name
+                        ? `"${creds.display_name}" <${creds.email}>`
+                        : creds.email,
+                to: Array.isArray(to) ? to.join(', ') : to,
+                subject: this.compileTemplate(subject, personalization),
+                html: finalHtml,
+                text: plainText,
+                replyTo: replyTo || creds.email,
+                cc: cc.length > 0 ? (Array.isArray(cc) ? cc.join(', ') : cc) : undefined,
+                bcc: bcc.length > 0 ? (Array.isArray(bcc) ? bcc.join(', ') : bcc) : undefined,
+            };
+
+            // Send via Microsoft Graph API
+            const info = await transporter.sendMail(mailOptions);
+
+            // Log tracking event
+            if (recipientId) {
+                await this.logTrackingEvent({
+                    campaignId,
+                    recipientId,
+                    eventType: 'sent',
+                    eventData: {
+                        messageId: info.messageId,
+                        response: info.response,
+                        accepted: info.accepted,
+                        rejected: info.rejected,
+                    },
+                });
+            }
+
+            return {
+                success: true,
+                messageId: info.messageId,
+                response: info.response,
+                accepted: info.accepted,
+                rejected: info.rejected,
+            };
+        } catch (error) {
+            console.error('OAuth email sending error:', error);
+
+            // Log failure event
+            if (recipientId) {
+                await this.logTrackingEvent({
+                    campaignId,
+                    recipientId,
+                    eventType: 'failed',
+                    eventData: {
+                        error: error.message,
+                        code: error.code,
+                    },
+                });
+            }
+
+            throw error;
+        }
+    }
+
+    /**
      * Send a single email
      */
     async sendEmail({
@@ -460,8 +769,30 @@ class EmailService {
         personalization = {},
     }) {
         try {
-            // Get transporter
+            // Get transporter (could be OAuth or SMTP)
             const transporter = await this.getTransporter(smtpCredentialId);
+
+            // Check if it's OAuth-based transporter
+            if (transporter.type === 'oauth') {
+                return await this.sendEmailViaOAuth(transporter, {
+                    smtpCredentialId,
+                    to,
+                    subject,
+                    html,
+                    text,
+                    fromName,
+                    fromEmail,
+                    replyTo,
+                    cc,
+                    bcc,
+                    attachments,
+                    recipientId,
+                    campaignId,
+                    personalization,
+                });
+            }
+
+            // Continue with regular SMTP sending...
 
             // Get SMTP credentials for from email
             const creds = await EmailSMTPCredentials.findByPk(smtpCredentialId, {
@@ -1291,6 +1622,14 @@ class EmailService {
     async testSMTPConnection(smtpCredentialId) {
         try {
             const transporter = await this.getTransporter(smtpCredentialId);
+            
+            // For OAuth transporters, use the verify method
+            if (transporter.type === 'oauth') {
+                await transporter.verify();
+                return { success: true, message: 'OAuth connection verified successfully' };
+            }
+            
+            // For regular SMTP
             await transporter.verify();
             return { success: true, message: 'SMTP connection successful' };
         } catch (error) {

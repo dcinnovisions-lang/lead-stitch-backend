@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const emailController = require('../controllers/emailController');
+const outlookOAuthController = require('../controllers/outlookOAuthController');
 const { authenticateToken } = require('../middleware/auth');
 
 // CORS middleware for tracking endpoints (public access from email clients)
@@ -17,6 +18,11 @@ router.get('/track/pixel/:pixelId', trackingCors, emailController.trackEmailOpen
 router.get('/track/link/:linkId', trackingCors, emailController.trackLinkClick);
 router.get('/unsubscribe', trackingCors, emailController.handleUnsubscribe);
 router.post('/unsubscribe', trackingCors, emailController.handleUnsubscribe);
+
+// Outlook OAuth Routes (callback is public, others require auth)
+router.get('/outlook/oauth/url', authenticateToken, outlookOAuthController.getOutlookAuthUrl);
+router.get('/outlook/oauth/callback', outlookOAuthController.handleOutlookCallback);
+router.post('/outlook/oauth/refresh', authenticateToken, outlookOAuthController.refreshOutlookToken);
 
 // All other routes require authentication
 router.use(authenticateToken);

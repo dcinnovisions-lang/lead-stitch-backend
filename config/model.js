@@ -208,8 +208,12 @@ var EmailSMTPCredentials = sequelize.define('email_smtp_credentials', {
     smtp_port: { type: Sequelize.INTEGER, allowNull: false },
     smtp_secure: { type: Sequelize.BOOLEAN, defaultValue: false },
     username: { type: Sequelize.STRING, allowNull: false },
-    password_encrypted: { type: Sequelize.TEXT, allowNull: false },
+    password_encrypted: { type: Sequelize.TEXT, allowNull: true }, // Optional for OAuth
     display_name: { type: Sequelize.STRING },
+    // OAuth 2.0 fields for Outlook/Microsoft
+    oauth_access_token_encrypted: { type: Sequelize.TEXT, allowNull: true },
+    oauth_refresh_token_encrypted: { type: Sequelize.TEXT, allowNull: true },
+    oauth_expires_at: { type: Sequelize.DATE, allowNull: true },
     is_active: { type: Sequelize.BOOLEAN, defaultValue: true },
     is_verified: { type: Sequelize.BOOLEAN, defaultValue: false },
     last_used_at: { type: Sequelize.DATE },
