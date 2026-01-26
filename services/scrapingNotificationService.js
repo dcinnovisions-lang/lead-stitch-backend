@@ -29,17 +29,14 @@ class ScrapingNotificationService {
             };
 
             if (smtpConfig.auth) {
-                console.log('📧 [Email Notification] Initializing SMTP transporter...');
-                console.log(`📧 [Email Notification] SMTP Host: ${smtpConfig.host}:${smtpConfig.port}`);
-                console.log(`📧 [Email Notification] SMTP User: ${smtpConfig.auth.user}`);
                 this.transporter = nodemailer.createTransport(smtpConfig);
                 // Verify connection
                 console.log('📧 [Email Notification] Verifying SMTP connection...');
                 await this.transporter.verify();
-                console.log('✅ [Email Notification] SMTP connection verified successfully!');
+                console.log('[Email Notification] SMTP connection verified successfully!');
             } else {
-                console.warn('⚠️  SMTP not configured. Scraping email notifications will be disabled.');
-                console.warn('⚠️  Set OTP_SMTP_HOST, OTP_SMTP_PORT, OTP_SMTP_USER, OTP_SMTP_PASS in .env to enable notifications.');
+                console.warn('SMTP not configured. Scraping email notifications will be disabled.');
+                console.warn('Set OTP_SMTP_HOST, OTP_SMTP_PORT, OTP_SMTP_USER, OTP_SMTP_PASS in .env to enable notifications.');
             }
             this.initialized = true;
         } catch (error) {
@@ -121,7 +118,7 @@ class ScrapingNotificationService {
 
             if (success) {
                 // Success notification
-                const subject = `✅ LinkedIn Scraping Completed - ${profilesCount} Profiles Found`;
+                const subject = `LinkedIn Scraping Completed - ${profilesCount} Profiles Found`;
                 const html = `
                     <!DOCTYPE html>
                     <html>
@@ -143,7 +140,7 @@ class ScrapingNotificationService {
                     <body>
                         <div class="container">
                         <div class="header">
-                            <h1>🎉 Scraping Completed Successfully!</h1>
+                            <h1>Scraping Completed Successfully!</h1>
                         </div>
                         <div class="content">
                             <p>Hi ${userName},</p>
@@ -217,7 +214,7 @@ class ScrapingNotificationService {
                 return true;
             } else {
                 // Failure notification
-                const subject = `❌ LinkedIn Scraping Failed - ${requirementName}`;
+                const subject = `LinkedIn Scraping Failed - ${requirementName}`;
                 const html = `
                     <!DOCTYPE html>
                     <html>
@@ -237,7 +234,7 @@ class ScrapingNotificationService {
                     <body>
                         <div class="container">
                         <div class="header">
-                            <h1>⚠️ Scraping Job Failed</h1>
+                            <h1>Scraping Job Failed</h1>
                         </div>
                         <div class="content">
                             <p>Hi ${userName},</p>

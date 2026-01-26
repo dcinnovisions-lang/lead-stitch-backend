@@ -74,9 +74,18 @@ var BusinessRequirements = sequelize.define('business_requirements', {
     updated_at: { type: Sequelize.DATE, defaultValue: Sequelize.NOW },
 });
 
+var Suggestions = sequelize.define('suggestions', {
+    id: { type: Sequelize.UUID, defaultValue: Sequelize.UUIDV1, primaryKey: true },
+    business_requirement_id: { type: Sequelize.UUID, allowNull: false },
+    suggestion_text: { type: Sequelize.TEXT, allowNull: false },
+    created_at: { type: Sequelize.DATE, defaultValue: Sequelize.NOW },
+    updated_at: { type: Sequelize.DATE, defaultValue: Sequelize.NOW },
+});
+
 var DecisionMakerRoles = sequelize.define('decision_maker_roles', {
     id: { type: Sequelize.UUID, defaultValue: Sequelize.UUIDV1, primaryKey: true },
     business_requirement_id: { type: Sequelize.UUID, allowNull: false },
+    suggestion_id: { type: Sequelize.UUID, allowNull: false },
     role_title: { type: Sequelize.STRING, allowNull: false },
     industry: { type: Sequelize.STRING },
     priority: { type: Sequelize.INTEGER, defaultValue: 0 },
@@ -88,6 +97,11 @@ var DecisionMakerRoles = sequelize.define('decision_maker_roles', {
     created_at: { type: Sequelize.DATE, defaultValue: Sequelize.NOW },
     updated_at: { type: Sequelize.DATE, defaultValue: Sequelize.NOW },
 });
+BusinessRequirements.hasMany(Suggestions, { foreignKey: 'business_requirement_id', onDelete: 'CASCADE' });
+Suggestions.belongsTo(BusinessRequirements, { foreignKey: 'business_requirement_id' });
+
+Suggestions.hasMany(DecisionMakerRoles, { foreignKey: 'suggestion_id', onDelete: 'CASCADE' });
+DecisionMakerRoles.belongsTo(Suggestions, { foreignKey: 'suggestion_id', as: 'suggestion' });
 
 var LinkedInProfiles = sequelize.define('linkedin_profiles', {
     id: { type: Sequelize.UUID, defaultValue: Sequelize.UUIDV1, primaryKey: true },
@@ -500,6 +514,7 @@ module.exports = {
     "PsqlSequelize": sequelize,
     "Users": Users,
     "BusinessRequirements": BusinessRequirements,
+    "Suggestions": Suggestions,
     "DecisionMakerRoles": DecisionMakerRoles,
     "LinkedInProfiles": LinkedInProfiles,
     "EmailAddresses": EmailAddresses,

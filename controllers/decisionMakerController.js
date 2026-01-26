@@ -1,4 +1,4 @@
-const { BusinessRequirements, DecisionMakerRoles } = require('../config/model');
+const { BusinessRequirements, DecisionMakerRoles, Suggestions } = require('../config/model');
 const { Op } = require('sequelize');
 
 // Helper function to convert priority string to integer
@@ -34,13 +34,123 @@ exports.getDecisionMakers = async (req, res) => {
             return res.status(404).json({ message: 'Business requirement not found' });
         }
 
-        // Get decision makers
+        // Get decision makers with suggestion information
         const decisionMakers = await DecisionMakerRoles.findAll({
             where: { business_requirement_id: requirementId },
+            include: [{
+                model: Suggestions,
+                as: 'suggestion', // Use explicit alias
+                attributes: ['id', 'suggestion_text', 'created_at'],
+                required: false // Left join in case some decision makers don't have suggestions
+            }],
             order: [['priority', 'DESC'], ['created_at', 'ASC']]
         });
 
-        res.json(decisionMakers);
+        console.log('🔵 Total decision makers found:', decisionMakers.length);
+
+        // Get all unique suggestion IDs
+        const suggestionIds = [...new Set(decisionMakers.map(dm => dm.suggestion_id).filter(id => id))];
+        console.log('🔵 Unique suggestion IDs:', suggestionIds);
+
+        // Manually fetch suggestions if include didn't work
+        let suggestionsMap = {};
+        if (suggestionIds.length > 0) {
+            console.log('🔵 Fetching suggestions for IDs:', suggestionIds);
+            const suggestions = await Suggestions.findAll({
+                where: { id: { [Op.in]: suggestionIds } },
+                attributes: ['id', 'suggestion_text', 'created_at']
+            });
+            console.log('🔵 Found suggestions in DB:', suggestions.length);
+            suggestions.forEach(sug => {
+                const sugData = sug.toJSON();
+                const sugIdStr = String(sug.id); // Ensure string key
+                suggestionsMap[sugIdStr] = sugData;
+                console.log('🔵 Suggestion mapped:', sugIdStr, 'Type:', typeof sugIdStr, '->', sugData.suggestion_text?.substring(0, 50));
+            });
+            console.log('🔵 Final suggestionsMap keys:', Object.keys(suggestionsMap));
+        }
+
+        // Transform the response to ensure suggestion data is accessible
+        const decisionMakersWithSuggestions = decisionMakers.map(dm => {
+            const dmData = dm.toJSON();
+            
+            // Try to get suggestion from Sequelize include first
+            let suggestionData = null;
+            
+            // Check model instance first (before toJSON)
+            if (dm.Suggestion) {
+                suggestionData = dm.Suggestion.toJSON ? dm.Suggestion.toJSON() : dm.Suggestion;
+                console.log('🔵 Found suggestion via dm.Suggestion');
+            } else if (dm.suggestion) {
+                suggestionData = dm.suggestion.toJSON ? dm.suggestion.toJSON() : dm.suggestion;
+                console.log('🔵 Found suggestion via dm.suggestion');
+            }
+            
+            // Then check JSON data
+            if (!suggestionData) {
+                if (dmData.Suggestion) {
+                    suggestionData = dmData.Suggestion;
+                    console.log('🔵 Found suggestion via dmData.Suggestion');
+                } else if (dmData.suggestion) {
+                    suggestionData = dmData.suggestion;
+                    console.log('🔵 Found suggestion via dmData.suggestion');
+                } else if (dmData.suggestions) {
+                    suggestionData = Array.isArray(dmData.suggestions) ? dmData.suggestions[0] : dmData.suggestions;
+                    console.log('🔵 Found suggestion via dmData.suggestions');
+                }
+            }
+            
+            // If still no suggestion, try manual lookup
+            if (!suggestionData && dm.suggestion_id) {
+                const suggestionIdStr = String(dm.suggestion_id);
+                console.log('🔵 Looking up suggestion manually for ID:', suggestionIdStr, 'Type:', typeof suggestionIdStr);
+                console.log('🔵 Available suggestion IDs in map:', Object.keys(suggestionsMap));
+                
+                // Try direct lookup
+                if (suggestionsMap[suggestionIdStr]) {
+                    suggestionData = suggestionsMap[suggestionIdStr];
+                    console.log('🔵 ✅ Using manually fetched suggestion for DM:', dm.id);
+                } else {
+                    // Try to find by matching any key (in case of UUID format differences)
+                    const matchingKey = Object.keys(suggestionsMap).find(key => String(key) === suggestionIdStr);
+                    if (matchingKey) {
+                        suggestionData = suggestionsMap[matchingKey];
+                        console.log('🔵 ✅ Using manually fetched suggestion (matched key) for DM:', dm.id);
+                    } else {
+                        console.log('🔵 ❌ Suggestion not found in map for ID:', suggestionIdStr);
+                        console.log('🔵 Map entries:', Object.entries(suggestionsMap).map(([k, v]) => [String(k), v.suggestion_text?.substring(0, 30)]));
+                    }
+                }
+            }
+            
+            // Normalize to 'suggestion' property
+            if (suggestionData) {
+                dmData.suggestion = suggestionData;
+                console.log('🔵 ✅ Attached suggestion to DM:', dm.id);
+            } else {
+                console.log('🔵 ❌ No suggestion data found for DM:', dm.id, 'suggestion_id:', dm.suggestion_id);
+            }
+            
+            // Clean up any other suggestion property names
+            delete dmData.Suggestion;
+            delete dmData.suggestions;
+            
+            return dmData;
+        });
+
+        // Final verification - log first result to ensure suggestion is attached
+        if (decisionMakersWithSuggestions.length > 0) {
+            const firstResult = decisionMakersWithSuggestions[0];
+            console.log('🔵 Final response - First DM has suggestion:', !!firstResult.suggestion);
+            if (firstResult.suggestion) {
+                console.log('🔵 Final response - First DM suggestion text:', firstResult.suggestion.suggestion_text?.substring(0, 50));
+            } else {
+                console.log('🔵 Final response - First DM suggestion_id:', firstResult.suggestion_id);
+                console.log('🔵 Final response - First DM keys:', Object.keys(firstResult));
+            }
+        }
+
+        res.json(decisionMakersWithSuggestions);
     } catch (error) {
         console.error('Get decision makers error:', error);
         res.status(500).json({ message: 'Internal server error' });

@@ -27,8 +27,11 @@ const ROLE_HIERARCHY = {
 
 /**
  * Generate enhanced prompt with industry context and few-shot examples
+ * @param {Object} requirement - The business requirement object
+ * @param {number} attemptNumber - The retry attempt number (default: 1)
+ * @param {string} suggestionText - Optional suggestion text to include in the prompt
  */
-function generateEnhancedPrompt(requirement, attemptNumber = 1) {
+function generateEnhancedPrompt(requirement, attemptNumber = 1, suggestionText = null) {
     const industry = requirement.industry || 'General Business';
     const targetMarket = requirement.target_market || 'B2B';
     const productService = requirement.product_service || 'Product/Service';
@@ -37,6 +40,11 @@ function generateEnhancedPrompt(requirement, attemptNumber = 1) {
     const industryExamples = INDUSTRY_DECISION_MAKERS[industry] || [];
     const industryContext = industryExamples.length > 0
         ? `\n\nFor ${industry} industry, typical decision makers include: ${industryExamples.slice(0, 3).join(', ')}`
+        : '';
+
+    // Include suggestion text if provided
+    const suggestionContext = suggestionText 
+        ? `\n\nSpecific Business Suggestion: "${suggestionText}"\n\nFocus on decision makers who would be relevant for this specific suggestion.`
         : '';
 
     // Few-shot examples showing single, clean role titles
@@ -76,17 +84,17 @@ Business Requirement: "${requirement.requirement_text}"
 Industry: ${industry}
 Product/Service: ${productService}
 Target Location: ${requirement.target_location || 'Not specified'}
-Target Market: ${targetMarket}${industryContext}
+Target Market: ${targetMarket}${industryContext}${suggestionContext}
 
-Your task: Identify 5-8 relevant decision-maker roles who have:
+Your task: Identify exactly 7 relevant decision-maker roles who have:
 1. Budget authority for ${productService}
 2. Influence over purchasing decisions
-3. Strategic alignment with this requirement
+3. Strategic alignment with this requirement${suggestionText ? ' and the specific suggestion above' : ''}
 4. Industry-specific relevance
 
 ${examples}
 
-Return a JSON array of decision maker objects. Each object must have:
+Return a JSON array of exactly 7 decision maker objects. Each object must have:
 - role: string (job title/role - SINGLE CLEAN TITLE ONLY, NO alternatives like "CEO / Chief Executive" - just "CEO")
 - priority: number (1 = highest priority, higher numbers = lower priority)
 - reasoning: string (brief explanation why this role is relevant)
@@ -97,7 +105,8 @@ CRITICAL RULES:
 1. Return ONLY valid JSON (no markdown, no \`\`\`json or \`\`\`)
 2. Each role must be a SINGLE CLEAN job title (e.g., "VP of Sales" NOT "VP of Sales / Sales Director")
 3. Do NOT use "/" or "or" to provide alternatives - choose the BEST single title
-4. Start directly with [ or {.`,
+4. Return exactly 7 decision makers
+5. Start directly with [ or {.`,
 
         // Attempt 2: More focused, less verbose
         `Identify decision-makers for this B2B requirement:
@@ -105,76 +114,27 @@ CRITICAL RULES:
 "${requirement.requirement_text}"
 Industry: ${industry}
 Product: ${productService}
-Location: ${requirement.target_location || 'Any'}
+Location: ${requirement.target_location || 'Any'}${suggestionContext}
 
-Return JSON array with objects: {role, priority, reasoning, industry_relevance, confidence}
+Return JSON array with exactly 7 objects: {role, priority, reasoning, industry_relevance, confidence}
 Priority: 1 = highest, higher = lower
 Industry relevance: "high", "medium", or "low"
 Confidence: 0.0 to 1.0
 
-Return 5-8 roles. CRITICAL: Return pure JSON only (no markdown, no \`\`\`, no code blocks). Start directly with [ or {.`,
+Return exactly 7 roles. CRITICAL: Return pure JSON only (no markdown, no \`\`\`, no code blocks). Start directly with [ or {.`,
 
         // Attempt 3: Simplified, direct
         `Business: "${requirement.requirement_text}"
 Industry: ${industry}
-Product: ${productService}
+Product: ${productService}${suggestionContext}
 
-List 5-8 decision-maker job titles as JSON array of objects:
-[{role: "title", priority: 1-8, reasoning: "why", industry_relevance: "high/medium/low", confidence: 0.0-1.0}]
+List exactly 7 decision-maker job titles as JSON array of objects:
+[{role: "title", priority: 1-7, reasoning: "why", industry_relevance: "high/medium/low", confidence: 0.0-1.0}]
 
-CRITICAL: Return pure JSON only. No markdown, no \`\`\`, no code blocks. Start with [.`
+CRITICAL: Return pure JSON only. No markdown, no \`\`\`, no code blocks. Start with [. Return exactly 7 decision makers.`
     ];
 
     return promptVariations[Math.min(attemptNumber - 1, promptVariations.length - 1)];
-}
-
-/**
- * JSON Schema for structured output (OpenAI function calling)
- */
-function getDecisionMakerSchema() {
-    return {
-        type: 'object',
-        properties: {
-            decision_makers: {
-                type: 'array',
-                items: {
-                    type: 'object',
-                    properties: {
-                        role: {
-                            type: 'string',
-                            description: 'Job title or role of the decision maker - SINGLE CLEAN TITLE ONLY (e.g., "VP of Sales" not "VP of Sales / Sales Director"). Do not use "/" or "or" for alternatives.',
-                            pattern: '^[^/]+$'  // Regex to disallow "/" character
-                        },
-                        priority: {
-                            type: 'number',
-                            description: 'Priority ranking (1 = highest priority)',
-                            minimum: 1,
-                            maximum: 10
-                        },
-                        reasoning: {
-                            type: 'string',
-                            description: 'Brief explanation why this role is relevant'
-                        },
-                        industry_relevance: {
-                            type: 'string',
-                            enum: ['high', 'medium', 'low'],
-                            description: 'How relevant this role is to the specified industry'
-                        },
-                        confidence: {
-                            type: 'number',
-                            description: 'Confidence score (0.0 to 1.0)',
-                            minimum: 0,
-                            maximum: 1
-                        }
-                    },
-                    required: ['role', 'priority', 'reasoning', 'industry_relevance', 'confidence']
-                },
-                minItems: 3,
-                maxItems: 10
-            }
-        },
-        required: ['decision_makers']
-    };
 }
 
 /**
@@ -482,81 +442,61 @@ function extractJSONFromResponse(content) {
  * Returns top 3 industries ordered by best match
  */
 function generateIndustryIdentificationPrompt(requirementText, attemptNumber = 1) {
-        const promptVariations = [
-                // Attempt 1: Comprehensive prompt
-                `You are an expert business analyst specializing in industry classification.
+    const promptVariations = [
+        // Attempt 1: Comprehensive prompt
+        `   You are an expert business analyst specializing in industry classification.
 
-Business Requirement: "${requirementText}"
+            Business Requirement: "${requirementText}"
 
-Your task: Identify the top 3 industries that best match this requirement.
+            Your task: Identify the top 10 industries that best match this requirement.
 
-Return JSON ONLY with the shape:
-{
-    "industries": ["Primary industry (best match)", "Second best", "Third best"]
-}
+            Return JSON ONLY with the shape:
+            {
+                "industries": ["Primary industry (best match)", "Second best", ..., "Tenth best"]
+            }
 
-Rules:
-- industries array MUST have 3 distinct items, ordered best to worst match
-- Use standard industry names (e.g., Technology, Healthcare, Finance, Retail, Manufacturing, Education, Real Estate, Logistics)
-- Keep each industry to a single word or short phrase (max 3 words)
-- No explanations, markdown, or extra text
+            Rules:
+            - industries array MUST have 10 distinct items, ordered best to worst match
+            - Use standard industry names (e.g., Technology, Healthcare, Finance, Retail, Manufacturing, Education, Real Estate, Logistics)
+            - Keep each industry to a single word or short phrase (max 3 words)
+            - No explanations, markdown, or extra text
 
-Examples:
-- Input: "I want to sell enterprise software to tech companies in Europe"
-    Output: {"industries":["Technology","Software","Information Technology"]}
+            Examples:
+            - Input: "I want to sell enterprise software to tech companies in Europe"
+                Output: {"industries":["Technology","Software","Information Technology","Consulting","IT Services","Cloud Computing","SaaS","Enterprise","Digital Transformation","Business Services"]}
 
-- Input: "I need to find hospitals to sell medical equipment to"
-    Output: {"industries":["Healthcare","Medical Devices","Hospitals"]}
+            - Input: "I need to find hospitals to sell medical equipment to"
+                Output: {"industries":["Healthcare","Medical Devices","Hospitals","Health Services","Medical Supplies","Life Sciences","Pharmaceuticals","Biotechnology","Clinical Research","Diagnostics"]}
 
-Return ONLY the JSON object described above.`,
+            Return ONLY the JSON object described above.
+        `,
 
-                // Attempt 2: More direct
-                `Identify the top 3 industries for: "${requirementText}"
+        // Attempt 2: More direct
+        `
+            Identify the top 10 industries for: "${requirementText}"
 
-Return JSON ONLY: {"industries":["best","second","third"]}
+            Return JSON ONLY: {"industries":["best","second","third","fourth","fifth","sixth","seventh","eighth","ninth","tenth"]}
 
-industries (exactly 3, ordered best to worst):`,
+            industries (exactly 10, ordered best to worst):
+        `,
 
-                // Attempt 3: Simplest
-                `"${requirementText}"
+        // Attempt 3: Simplest
+        `
+            "${requirementText}"
 
-Return JSON ONLY with industries array of 3 items (best to worst): {"industries":["best","second","third"]}`,
-        ];
+            Return JSON ONLY with industries array of 10 items (best to worst): {"industries":["best","second","third","fourth","fifth","sixth","seventh","eighth","ninth","tenth"]}
+        `,
+    ];
 
-        return promptVariations[Math.min(attemptNumber - 1, promptVariations.length - 1)];
-}
-
-/**
- * Schema for industry identification (OpenAI function calling)
- */
-function getIndustrySchema() {
-        return {
-                type: 'object',
-                properties: {
-                        industries: {
-                                type: 'array',
-                                minItems: 3,
-                                maxItems: 3,
-                                items: {
-                                        type: 'string',
-                                        description: 'Industry name (single word or short phrase, best match first)'
-                                },
-                                description: 'Top 3 industries ordered best to worst'
-                        }
-                },
-                required: ['industries']
-        };
+    return promptVariations[Math.min(attemptNumber - 1, promptVariations.length - 1)];
 }
 
 module.exports = {
     generateEnhancedPrompt,
-    getDecisionMakerSchema,
     validateDecisionMakers,
     checkIndustryAlignment,
     extractJSONFromResponse,
     generateIndustryIdentificationPrompt,
-    getIndustrySchema,
     INDUSTRY_DECISION_MAKERS,
     ROLE_HIERARCHY,
 };
-

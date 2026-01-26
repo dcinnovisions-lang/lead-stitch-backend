@@ -16,48 +16,49 @@ const scrapingQueue = new Queue('linkedin-scraping', {
 
 // Process jobs with error handling
 scrapingQueue.process(1, async (job) => {
-  try {
-    return await processLinkedInScraping(job);
-  } catch (error) {
-    // Log error appropriately
-    if (error.message && error.message.includes('Apollo API')) {
-      console.log(`[Queue] ⚠️  Job ${job.id}: Apollo.io API error.`);
-      throw error;
-    } else {
-      console.error(`[Queue] ❌ Job ${job.id} failed:`, error.message);
-      throw error;
+    try {
+        return await processLinkedInScraping(job);
+    } catch (error) {
+        // Log error appropriately
+        if (error.message && error.message.includes('Apollo API')) {
+            console.log(`[Queue] ⚠️  Job ${job.id}: Apollo.io API error.`);
+            throw error;
+        } else {
+            console.error(`[Queue] ❌ Job ${job.id} failed:`, error.message);
+            throw error;
+        }
     }
-  }
 });
 
 // Clean up old failed jobs on startup (optional - runs once)
 scrapingQueue.on('ready', async () => {
-  try {
-    // Get failed jobs older than 1 hour
-    const failedJobs = await scrapingQueue.getJobs(['failed'], 0, 100);
-    const oneHourAgo = Date.now() - (60 * 60 * 1000);
-    
-    for (const job of failedJobs) {
-      const timestamp = job.timestamp || 0;
-      if (timestamp < oneHourAgo) {
-        await job.remove();
-        console.log(`[Queue] 🧹 Cleaned up old failed job ${job.id}`);
-      }
+    try {
+        // Get failed jobs older than 1 hour
+        const failedJobs = await scrapingQueue.getJobs(['failed'], 0, 100);
+        const oneHourAgo = Date.now() - (60 * 60 * 1000);
+
+        for (const job of failedJobs) {
+            const timestamp = job.timestamp || 0;
+            if (timestamp < oneHourAgo) {
+                await job.remove();
+                console.log(`[Queue] 🧹 Cleaned up old failed job ${job.id}`);
+            }
+        }
+    } catch (error) {
+        // Silently fail cleanup - not critical
+        console.log('[Queue] Could not clean up old jobs:', error.message);
     }
-  } catch (error) {
-    // Silently fail cleanup - not critical
-    console.log('[Queue] Could not clean up old jobs:', error.message);
-  }
 });
 
 // Handle job failures gracefully
 scrapingQueue.on('failed', (job, error) => {
-  // Log all failures
-  console.error(`[Queue] ❌ Job ${job?.id || 'unknown'} failed:`, error.message);
+    // Log all failures
+    console.error(`[Queue] ❌ Job ${job?.id || 'unknown'} failed:`, error.message);
 });
 
 // Start profile search with Apollo.io
 exports.startScraping = async (req, res) => {
+    console.log('🔵 Start scraping called', req.body)
     try {
         const { requirementId } = req.body; // Remove linkedInCredentials requirement
         const userId = req.user.userId;
@@ -69,6 +70,7 @@ exports.startScraping = async (req, res) => {
                 user_id: userId
             }
         });
+        console.log('🔵 Requirement:', requirement);
 
         if (!requirement) {
             return res.status(404).json({ message: 'Business requirement not found' });
@@ -76,7 +78,7 @@ exports.startScraping = async (req, res) => {
 
         // Check if Apollo API key is configured
         if (!process.env.APOLLO_API_KEY) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 message: 'Apollo.io API key is not configured. Please set APOLLO_API_KEY in your environment variables.',
                 requiresApiKey: true
             });
@@ -93,6 +95,8 @@ exports.startScraping = async (req, res) => {
             where: { business_requirement_id: requirementId },
             order: [['priority', 'DESC']]
         });
+        // console.log('🔵 Roles:', roles.length);
+        // return res.status(500).json({ message: 'Start scraping called' });
 
         if (roles.length === 0) {
             return res.status(400).json({ message: 'No decision makers identified yet' });
@@ -120,7 +124,7 @@ exports.startScraping = async (req, res) => {
             industry: requirement.industry,
             linkedInCredentials: null, // Not needed for Apollo.io but kept for compatibility
         });
-        
+
         console.log(`[Profile Controller] ✅ Apollo profile search job queued with location: '${searchLocation}'`);
 
         res.json({
@@ -154,7 +158,7 @@ exports.getScrapingStatus = async (req, res) => {
         let currentRole = null;
         let rolesCompleted = 0;
         let totalRoles = 0;
-        
+
         // Initialize stepInfo early so it can be updated by Python API calls
         let stepInfo = {
             current_step: 'pending',
@@ -192,7 +196,7 @@ exports.getScrapingStatus = async (req, res) => {
         // Get error details from Python API if available
         let errorDetails = undefined;
         let errorMessage = undefined;
-        
+
         if (state === 'failed') {
             errorMessage = job.failedReason || 'Unknown error';
             // Check if Python API returned structured error details in job data
@@ -200,7 +204,7 @@ exports.getScrapingStatus = async (req, res) => {
                 errorDetails = jobData.errorDetails;
             }
         }
-        
+
         // Prepare response with all step tracking information
         const responseData = {
             jobId: job.id,
@@ -226,7 +230,7 @@ exports.getScrapingStatus = async (req, res) => {
             loginAttempt: stepInfo.login_attempt,
             loginMaxAttempts: stepInfo.login_max_attempts
         };
-        
+
         // Log response for debugging (only when step info is updated)
         if (process.env.NODE_ENV === 'development' && stepInfo.current_step !== 'pending') {
             console.log('[Profile Controller] Returning scraping status:', {
@@ -236,7 +240,7 @@ exports.getScrapingStatus = async (req, res) => {
                 login_status: responseData.login_status
             });
         }
-        
+
         res.json(responseData);
     } catch (error) {
         console.error('Get scraping status error:', error);
@@ -382,7 +386,7 @@ exports.enrichWithEmails = async (req, res) => {
                 const nameParts = (profile.name || '').trim().split(/\s+/);
                 const firstName = nameParts[0] || '';
                 const lastName = nameParts.slice(1).join(' ') || '';
-                
+
                 const enriched = await apolloService.enrichPerson({
                     name: profile.name,
                     firstName: firstName,
