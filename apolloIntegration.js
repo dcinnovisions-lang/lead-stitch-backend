@@ -28,7 +28,7 @@ async function callApollo(path, options = {}) {
             },
             params: options.params || undefined,
             data: options.data || undefined,
-            timeout: options.timeout || 15000
+            timeout: options.timeout || 120000  // Increased from 15s to 120s for better reliability
         });
 
         return res.data;

@@ -232,6 +232,7 @@ exports.identifyDecisionMakers = async (req, res) => {
         const model = 'gemini-2.5-flash';
         const maxRetries = 3; // Standard retries for most errors
         const maxRetries503 = 6; // More retries for 503/overloaded errors with longer waits
+        const GEMINI_TIMEOUT_MS = 120000; // 120 seconds timeout for Gemini API calls
 
         // Helper function to get decision makers for a single suggestion
         const getDecisionMakersForSuggestion = async (suggestionText) => {
@@ -281,15 +282,23 @@ exports.identifyDecisionMakers = async (req, res) => {
                     // Try JSON mode first, fallback to regular mode
                     let geminiResponse;
                     try {
-                        geminiResponse = await ai.models.generateContent({
-                            model: model,
-                            contents: prompt,
-                            generationConfig: {
-                                temperature: 0.3,
-                                maxOutputTokens: 2000,
-                                responseMimeType: 'application/json',
-                            },
+                        // Wrap Gemini API call with timeout
+                        const timeoutPromise = new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error(`Gemini API request timeout after ${GEMINI_TIMEOUT_MS / 1000} seconds`)), GEMINI_TIMEOUT_MS);
                         });
+                        
+                        geminiResponse = await Promise.race([
+                            ai.models.generateContent({
+                                model: model,
+                                contents: prompt,
+                                generationConfig: {
+                                    temperature: 0.3,
+                                    maxOutputTokens: 2000,
+                                    responseMimeType: 'application/json',
+                                },
+                            }),
+                            timeoutPromise
+                        ]);
                     } catch (jsonModeError) {
                         const jsonErrorCode = jsonModeError.code || jsonModeError.error?.code;
                         const jsonErrorStatus = jsonModeError.status || jsonModeError.error?.status;
@@ -345,14 +354,22 @@ exports.identifyDecisionMakers = async (req, res) => {
                         }
 
                         console.log(`⚠️  JSON mode not supported for ${model}, using regular mode`);
-                        geminiResponse = await ai.models.generateContent({
-                            model: model,
-                            contents: prompt + '\n\nCRITICAL INSTRUCTIONS:\n- Return ONLY valid JSON\n- Do NOT use markdown code blocks (no ```json or ```)\n- Do NOT include any explanations or text before/after JSON\n- Start directly with [ or {\n- End directly with ] or }',
-                            generationConfig: {
-                                temperature: 0.2,
-                                maxOutputTokens: 2000,
-                            },
+                        // Wrap Gemini API call with timeout
+                        const timeoutPromise = new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error(`Gemini API request timeout after ${GEMINI_TIMEOUT_MS / 1000} seconds`)), GEMINI_TIMEOUT_MS);
                         });
+                        
+                        geminiResponse = await Promise.race([
+                            ai.models.generateContent({
+                                model: model,
+                                contents: prompt + '\n\nCRITICAL INSTRUCTIONS:\n- Return ONLY valid JSON\n- Do NOT use markdown code blocks (no ```json or ```)\n- Do NOT include any explanations or text before/after JSON\n- Start directly with [ or {\n- End directly with ] or }',
+                                generationConfig: {
+                                    temperature: 0.2,
+                                    maxOutputTokens: 2000,
+                                },
+                            }),
+                            timeoutPromise
+                        ]);
                     }
 
                     console.log('✅ Gemini API call successful for suggestion');
@@ -509,6 +526,7 @@ exports.identifyDecisionMakers = async (req, res) => {
         const savedSuggestions = [];
         const savedRoles = [];
         const decisionMakersBySuggestion = {}; // Store decision makers organized by suggestion
+        let previousIndustry = null; // Track previous industry for delay
 
         for (let i = 0; i < suggestions.length; i++) {
             const suggestion = suggestions[i];
@@ -538,6 +556,13 @@ exports.identifyDecisionMakers = async (req, res) => {
             } else {
                 console.log(`🔵 Using industry from UI payload: "${extractedIndustry}"`);
             }
+
+            // Add 1 second delay when industry changes
+            if (previousIndustry !== null && previousIndustry !== extractedIndustry) {
+                console.log(`⏳ Industry changed from "${previousIndustry}" to "${extractedIndustry}". Waiting 1 second...`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            previousIndustry = extractedIndustry;
 
             try {
                 // Get decision makers for this suggestion
@@ -795,6 +820,7 @@ exports.identifyIndustry = async (req, res) => {
             const apiKey = process.env.GEMINI_API_KEY;
             const ai = new GoogleGenAI({ apiKey });
             const model = 'gemini-2.5-flash';
+            const GEMINI_TIMEOUT_MS = 120000; // 120 seconds timeout for Gemini API calls
 
             let geminiSuccess = false;
             let effectiveMaxRetries = maxRetries;
@@ -818,25 +844,41 @@ exports.identifyIndustry = async (req, res) => {
 
                     let geminiResponse;
                     try {
-                        geminiResponse = await ai.models.generateContent({
-                            model: model,
-                            contents: prompt,
-                            generationConfig: {
-                                temperature: 0.2,
-                                maxOutputTokens: 100,
-                                responseMimeType: 'application/json',
-                            },
+                        // Wrap Gemini API call with timeout
+                        const timeoutPromise = new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error(`Gemini API request timeout after ${GEMINI_TIMEOUT_MS / 1000} seconds`)), GEMINI_TIMEOUT_MS);
                         });
+                        
+                        geminiResponse = await Promise.race([
+                            ai.models.generateContent({
+                                model: model,
+                                contents: prompt,
+                                generationConfig: {
+                                    temperature: 0.2,
+                                    maxOutputTokens: 100,
+                                    responseMimeType: 'application/json',
+                                },
+                            }),
+                            timeoutPromise
+                        ]);
                     } catch (jsonModeError) {
                         console.log('⚠️  JSON mode not supported, using regular mode');
-                        geminiResponse = await ai.models.generateContent({
-                            model: model,
-                            contents: prompt + '\n\nCRITICAL: Return ONLY the industry name as plain text, no JSON, no markdown, no explanations.',
-                            generationConfig: {
-                                temperature: 0.2,
-                                maxOutputTokens: 100,
-                            },
+                        // Wrap Gemini API call with timeout
+                        const timeoutPromise = new Promise((_, reject) => {
+                            setTimeout(() => reject(new Error(`Gemini API request timeout after ${GEMINI_TIMEOUT_MS / 1000} seconds`)), GEMINI_TIMEOUT_MS);
                         });
+                        
+                        geminiResponse = await Promise.race([
+                            ai.models.generateContent({
+                                model: model,
+                                contents: prompt + '\n\nCRITICAL: Return ONLY the industry name as plain text, no JSON, no markdown, no explanations.',
+                                generationConfig: {
+                                    temperature: 0.2,
+                                    maxOutputTokens: 100,
+                                },
+                            }),
+                            timeoutPromise
+                        ]);
                     }
 
                     let content = geminiResponse.text || geminiResponse.response?.text || '';

@@ -88,6 +88,12 @@ app.get('/api/health', async (req, res) => {
 // Create HTTP server (required for Socket.io)
 const server = http.createServer(app);
 
+// Set server timeout to 10 minutes (600000ms) to handle long-running requests
+// This is needed for processing 35+ suggestions with Gemini and Apollo API calls
+server.timeout = 600000; // 10 minutes
+server.keepAliveTimeout = 65000; // 65 seconds
+server.headersTimeout = 66000; // 66 seconds
+
 // Initialize Socket.io
 initializeSocket(server);
 
